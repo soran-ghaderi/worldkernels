@@ -1,0 +1,16 @@
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "worldkernels"
+version = "0.0.0"
+description = "GPU-first world model simulation engine"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["worldkernels*", "worldkernel*"]
+
