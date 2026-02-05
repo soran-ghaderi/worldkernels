@@ -1,16 +1,104 @@
-
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=64", "wheel", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "worldkernels"
-version = "0.0.0"
-description = "GPU-first world model simulation engine"
+dynamic = ["version"]
+description = "GPU-first world model simulation engine for serving learned world models (DiT, VAE) as interactive sessions"
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Soran Ghaderi", email = "soran.gdr.cs@gmail.com" }]
 requires-python = ">=3.10"
+keywords = [
+    "world-model",
+    "video-generation",
+    "diffusion",
+    "simulation",
+    "gpu",
+    "pytorch",
+    "deep-learning",
+    "inference",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "torch>=2.0",
+    "numpy",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+    "ruff>=0.1",
+]
+serve = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+    "websockets>=11.0",
+]
+diffusers = [
+    "diffusers>=0.25.0",
+    "transformers>=4.35.0",
+    "accelerate>=0.25.0",
+    "safetensors>=0.4.0",
+    "huggingface_hub>=0.20",
+]
+all = [
+    "worldkernels[dev,serve,diffusers]",
+]
+docs = [
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.18",
+]
+
+[project.scripts]
+worldkernels = "worldkernels.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/soran-ghaderi/worldkernels"
+Documentation = "https://github.com/soran-ghaderi/worldkernels#readme"
+Repository = "https://github.com/soran-ghaderi/worldkernels.git"
+Changelog = "https://github.com/soran-ghaderi/worldkernels/blob/main/CHANGELOG.md"
+Issues = "https://github.com/soran-ghaderi/worldkernels/issues"
+
+[tool.setuptools_scm]
+write_to = "worldkernels/_version.py"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["worldkernels*", "worldkernel*"]
+include = ["worldkernels*"]
 
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.mypy]
+ignore_missing_imports = true
+python_version = "3.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
