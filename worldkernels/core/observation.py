@@ -15,11 +15,11 @@ class Observation:
 
     step_index: int
     generation_time_ms: float
-    frames: list[bytes] | None = None
-    latent: bytes | None = None
-    audio: bytes | None = None
-    depth: bytes | None = None
-    segmentation: bytes | None = None
+    frames: Any | None = None
+    latent: Any | None = None
+    audio: Any | None = None
+    depth: Any | None = None
+    segmentation: Any | None = None
     structured: dict[str, Any] | None = field(default_factory=dict)
     stage_timing: StageTiming | None = None
     decode_skipped: bool = False

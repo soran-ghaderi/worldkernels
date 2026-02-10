@@ -25,8 +25,31 @@ class SessionStatus(str, Enum):
 class LatentState:
     r"""Opaque tensor bundle representing the current world state."""
 
-    data: Any = None  # Will hold GPU tensors when implemented
+    data: Any = None
     device: str = "cpu"
+
+    @property
+    def nbytes(self) -> int:
+        r"""Memory footprint in bytes."""
+        if self.data is None:
+            return 0
+        if hasattr(self.data, "nelement") and hasattr(self.data, "element_size"):
+            return self.data.nelement() * self.data.element_size()
+        return 0
+
+    def clone(self) -> LatentState:
+        r"""Deep-copy this state, decoupling from the original tensor."""
+        if self.data is None:
+            return LatentState(data=None, device=self.device)
+        data_copy = self.data.clone() if hasattr(self.data, "clone") else copy.deepcopy(self.data)
+        return LatentState(data=data_copy, device=self.device)
+
+    def to(self, device: str) -> LatentState:
+        r"""Move state to a different device (e.g. GPU offload to CPU)."""
+        if self.data is None or self.device == device:
+            return LatentState(data=self.data, device=device)
+        moved = self.data.to(device) if hasattr(self.data, "to") else self.data
+        return LatentState(data=moved, device=device)
 
 
 @dataclass
@@ -76,10 +99,12 @@ class Session:
         Returns:
             An Observation with the requested modalities populated.
         """
-        from worldkernels.core.errors import SessionTerminatedError
+        from worldkernels.core.errors import SessionPausedError, SessionTerminatedError
 
         if self.status == SessionStatus.TERMINATED:
             raise SessionTerminatedError(self.session_id)
+        if self.status == SessionStatus.PAUSED:
+            raise SessionPausedError(self.session_id)
 
         if self._world is None or self._executor is None:
             raise RuntimeError(
@@ -108,45 +133,52 @@ class Session:
 
     def checkpoint(self) -> str:
         r"""Snapshot current latent state, return checkpoint ID."""
-        import torch
-
         ckpt_id = f"ckpt_{uuid.uuid4().hex[:8]}"
-        # Deep copy the tensor data so mutations don't affect the snapshot
-        data_copy = self.state.data.clone() if hasattr(self.state.data, "clone") else copy.deepcopy(self.state.data)
-        self._checkpoints[ckpt_id] = LatentState(
-            data=data_copy, device=self.state.device
-        )
+        self._checkpoints[ckpt_id] = self.state.clone()
         return ckpt_id
 
     def restore(self, checkpoint_id: str) -> None:
         r"""Restore session to a previously saved checkpoint."""
         if checkpoint_id not in self._checkpoints:
-            raise KeyError(f"Checkpoint '{checkpoint_id}' not found.")
-        saved = self._checkpoints[checkpoint_id]
-        data_copy = saved.data.clone() if hasattr(saved.data, "clone") else copy.deepcopy(saved.data)
-        self.state = LatentState(data=data_copy, device=saved.device)
+            from worldkernels.core.errors import CheckpointNotFoundError
+
+            raise CheckpointNotFoundError(checkpoint_id, self.session_id)
+        self.state = self._checkpoints[checkpoint_id].clone()
 
     def branch(self) -> Session:
         r"""Clone this session into a new independent session."""
-        import torch
-
-        data_copy = self.state.data.clone() if hasattr(self.state.data, "clone") else copy.deepcopy(self.state.data)
-        new_session = Session(
+        return Session(
             world_id=self.world_id,
             config=self.config,
-            state=LatentState(data=data_copy, device=self.state.device),
+            state=self.state.clone(),
             step_index=self.step_index,
             seed=self.seed,
             parent_session_id=self.session_id,
             _world=self._world,
             _executor=self._executor,
         )
-        return new_session
 
     def close(self) -> None:
         self.status = SessionStatus.TERMINATED
-        self.state = LatentState()  # release tensor reference
+        self.state = LatentState()
         self._checkpoints.clear()
+
+    def pause(self) -> None:
+        r"""Pause this session (ACTIVE -> PAUSED)."""
+        from worldkernels.core.errors import SessionTerminatedError
+
+        if self.status == SessionStatus.TERMINATED:
+            raise SessionTerminatedError(self.session_id)
+        self.status = SessionStatus.PAUSED
+
+    def resume(self) -> None:
+        r"""Resume a paused session (PAUSED -> ACTIVE)."""
+        from worldkernels.core.errors import SessionTerminatedError
+
+        if self.status == SessionStatus.TERMINATED:
+            raise SessionTerminatedError(self.session_id)
+        self.status = SessionStatus.ACTIVE
+        self.last_active_at = datetime.now()
 
     @property
     def id(self) -> str:

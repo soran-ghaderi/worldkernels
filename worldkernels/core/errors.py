@@ -46,3 +46,24 @@ class WorldInitError(WorldKernelError):
         self.world_id = world_id
         self.reason = reason
         super().__init__(f"Failed to initialize world '{world_id}': {reason}")
+
+
+class WorldAlreadyLoadedError(WorldKernelError):
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(f"World '{name}' is already loaded.")
+
+
+class CheckpointNotFoundError(WorldKernelError):
+    def __init__(self, checkpoint_id: str, session_id: str) -> None:
+        self.checkpoint_id = checkpoint_id
+        self.session_id = session_id
+        super().__init__(
+            f"Checkpoint '{checkpoint_id}' not found in session '{session_id}'."
+        )
+
+
+class SessionPausedError(WorldKernelError):
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+        super().__init__(f"Session '{session_id}' is paused. Call resume() first.")

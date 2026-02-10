@@ -9,6 +9,8 @@ import torch
 
 from worldkernels.core.errors import (
     SessionLimitError,
+    VRAMExhaustedError,
+    WorldAlreadyLoadedError,
     WorldInitError,
     WorldNotFoundError,
 )
@@ -78,9 +80,13 @@ class WorldKernel:
         trust_remote_code: bool = False,
     ) -> None:
         r"""Load a world model by registry name or HF Hub ID."""
+        from worldkernels.core.config import WorldConfig as WC
         from worldkernels.worlds.registry import get_world_class
 
         key = alias or model_id.split("/")[-1]
+
+        if key in self._worlds:
+            raise WorldAlreadyLoadedError(key)
 
         try:
             world_cls = get_world_class(model_id)
@@ -92,6 +98,8 @@ class WorldKernel:
             world.initialize(device=self.device, dtype=self.dtype)
         except Exception as exc:
             raise WorldInitError(model_id, str(exc)) from exc
+
+        world.warmup(world.default_config or WC())
 
         self._worlds[key] = world
         log.info("Loaded world: %s (class=%s)", key, world_cls.__qualname__)
@@ -118,6 +126,13 @@ class WorldKernel:
         actual_seed = seed if seed is not None else 0
 
         world_instance = self._worlds[world]
+
+        vram_mb = world_instance.estimate_vram_mb(cfg)
+        if self.device.startswith("cuda") and torch.cuda.is_available():
+            free_mb = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+            if vram_mb > free_mb:
+                raise VRAMExhaustedError(required_mb=vram_mb, available_mb=free_mb)
+
         initial_state = world_instance.create_initial_state(cfg, actual_seed)
 
         session = Session(
@@ -145,6 +160,19 @@ class WorldKernel:
 
     def list_worlds(self) -> list[str]:
         return list(self._worlds.keys())
+
+    def unload_world(self, name: str) -> None:
+        r"""Unload a world model and close all its sessions."""
+        if name not in self._worlds:
+            raise WorldNotFoundError(name)
+        sessions_to_close = [
+            sid for sid, sess in self._sessions.items()
+            if sess.world_id == name
+        ]
+        for sid in sessions_to_close:
+            self.close_session(sid)
+        del self._worlds[name]
+        log.info("Unloaded world: %s", name)
 
     def shutdown(self) -> None:
         for session in self._sessions.values():
