@@ -1,21 +1,30 @@
-"""
-WorldKernels - GPU-first world model simulation engine.
-
-Serve learned world models (DiT, VAE) as interactive sessions.
-
-Example:
-    >>> from worldkernels import WorldKernel, Action, WorldConfig
-    >>> wk = WorldKernel(device="cuda")
-    >>> wk.load_world("Etched/oasis-500m")
-    >>> session = wk.create_session(world="oasis-500m", config=WorldConfig())
-    >>> obs = session.step(Action("keyboard", {"keys": ["W"]}))
-"""
+"""WorldKernels - GPU-first world model simulation engine."""
 
 from worldkernels.core.action import Action
 from worldkernels.core.config import ServerConfig, WorldConfig
 from worldkernels.core.engine import WorldKernel
+from worldkernels.core.errors import (
+    CheckpointNotFoundError,
+    SessionLimitError,
+    SessionNotFoundError,
+    SessionPausedError,
+    SessionTerminatedError,
+    VRAMExhaustedError,
+    WorldAlreadyLoadedError,
+    WorldInitError,
+    WorldKernelError,
+    WorldNotFoundError,
+)
 from worldkernels.core.observation import Observation
-from worldkernels.core.session import Session, SessionStatus
+from worldkernels.core.session import LatentState, Session, SessionStatus
+from worldkernels.runtime.stages import (
+    StageConfig,
+    StageExecMode,
+    StageOutput,
+    StageTiming,
+    StageType,
+    TransitionMode,
+)
 
 try:
     from worldkernels._version import __version__, __version_tuple__
@@ -27,9 +36,26 @@ __all__ = [
     "WorldKernel",
     "Session",
     "SessionStatus",
+    "LatentState",
     "Action",
     "Observation",
     "WorldConfig",
     "ServerConfig",
+    "StageConfig",
+    "StageExecMode",
+    "StageOutput",
+    "StageTiming",
+    "StageType",
+    "TransitionMode",
+    "WorldKernelError",
+    "WorldNotFoundError",
+    "WorldAlreadyLoadedError",
+    "WorldInitError",
+    "SessionLimitError",
+    "SessionNotFoundError",
+    "SessionTerminatedError",
+    "SessionPausedError",
+    "CheckpointNotFoundError",
+    "VRAMExhaustedError",
     "__version__",
 ]
