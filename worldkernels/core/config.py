@@ -8,7 +8,12 @@ from typing import Literal
 
 @dataclass
 class WorldConfig:
-    """Per-session generation parameters."""
+    r"""Per-session generation parameters.
+
+    For bidirectional models, ``frames_per_step`` is the full chunk size.
+    For causal models, ``context_window`` and ``chunk_overlap`` control
+    streaming and KV cache behavior.
+    """
 
     # Resolution / format
     height: int = 480
@@ -19,12 +24,17 @@ class WorldConfig:
     num_inference_steps: int = 4
     guidance_scale: float = 1.0
 
-    # Chunking (how many frames per step call)
+    # Chunking
     frames_per_step: int = 8
+    chunk_overlap: int = 0
+
+    # KV cache (causal models)
+    context_window: int = 0
+    attention_sink_tokens: int = 0
 
     # Conditioning
     initial_prompt: str | None = None
-    initial_image: str | None = None  # path or base64
+    initial_image: str | None = None
 
     # Compute budget
     max_vram_gb: float | None = None
@@ -33,7 +43,7 @@ class WorldConfig:
 
 @dataclass
 class ServerConfig:
-    """Configuration for the HTTP/WebSocket server."""
+    r"""Configuration for the HTTP/WebSocket server."""
 
     host: str = "0.0.0.0"
     port: int = 8000

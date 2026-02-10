@@ -16,8 +16,6 @@ if TYPE_CHECKING:
 
 
 class SessionStatus(str, Enum):
-    """Lifecycle status of a session."""
-
     ACTIVE = "active"
     PAUSED = "paused"
     TERMINATED = "terminated"
@@ -25,7 +23,7 @@ class SessionStatus(str, Enum):
 
 @dataclass
 class LatentState:
-    """Opaque tensor bundle representing the current world state."""
+    r"""Opaque tensor bundle representing the current world state."""
 
     data: Any = None  # Will hold GPU tensors when implemented
     device: str = "cpu"
@@ -33,7 +31,7 @@ class LatentState:
 
 @dataclass
 class Session:
-    """A stateful simulation session bound to a world model."""
+    r"""A stateful simulation session bound to a world model."""
 
     session_id: str = field(default_factory=lambda: f"sess_{uuid.uuid4().hex[:12]}")
     world_id: str = ""
@@ -65,14 +63,15 @@ class Session:
         self,
         action,
         modalities: list[str] | None = None,
+        decode: bool = True,
     ):
-        """Execute one simulation step with the given action.
+        r"""Execute one simulation step through the three-stage pipeline.
 
         Args:
             action: An Action instance describing the control input.
             modalities: Which observation modalities to decode.
-                Defaults to ``["frames"]``. Pass ``["frames", "depth",
-                "audio"]`` to decode everything.
+                Defaults to ``["frames"]``.
+            decode: If False, skip observation decoding (stage 3).
 
         Returns:
             An Observation with the requested modalities populated.
@@ -97,6 +96,7 @@ class Session:
             action=action,
             modalities=modalities,
             step_index=self.step_index,
+            decode=decode,
         )
 
         self.state = new_state
@@ -107,7 +107,7 @@ class Session:
     # ---- checkpoint / branch / restore -----------------------------------
 
     def checkpoint(self) -> str:
-        """Snapshot current latent state, return checkpoint ID."""
+        r"""Snapshot current latent state, return checkpoint ID."""
         import torch
 
         ckpt_id = f"ckpt_{uuid.uuid4().hex[:8]}"
@@ -119,7 +119,7 @@ class Session:
         return ckpt_id
 
     def restore(self, checkpoint_id: str) -> None:
-        """Restore session to a previously saved checkpoint."""
+        r"""Restore session to a previously saved checkpoint."""
         if checkpoint_id not in self._checkpoints:
             raise KeyError(f"Checkpoint '{checkpoint_id}' not found.")
         saved = self._checkpoints[checkpoint_id]
@@ -127,12 +127,7 @@ class Session:
         self.state = LatentState(data=data_copy, device=saved.device)
 
     def branch(self) -> Session:
-        """Clone this session into a new independent session.
-
-        The new session shares the same world model and executor but
-        gets its own copy of the latent state (copy-on-write in the
-        future, eager clone for now).
-        """
+        r"""Clone this session into a new independent session."""
         import torch
 
         data_copy = self.state.data.clone() if hasattr(self.state.data, "clone") else copy.deepcopy(self.state.data)
@@ -149,12 +144,10 @@ class Session:
         return new_session
 
     def close(self) -> None:
-        """Terminate this session and release resources."""
         self.status = SessionStatus.TERMINATED
         self.state = LatentState()  # release tensor reference
         self._checkpoints.clear()
 
     @property
     def id(self) -> str:
-        """Alias for session_id."""
         return self.session_id
