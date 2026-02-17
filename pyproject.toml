@@ -47,8 +47,13 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-xdist>=3.5",
     "mypy>=1.0",
-    "ruff>=0.1",
+    "ruff>=0.6",
+    "pre-commit>=3.6",
+    "build>=1.2",
+    "twine>=5.0",
+    "pip-audit>=2.7",
 ]
 serve = [
     "fastapi>=0.100",
@@ -62,16 +67,34 @@ diffusers = [
     "safetensors>=0.4.0",
     "huggingface_hub>=0.20",
 ]
+metrics = [
+    "prometheus_client>=0.17",
+]
 all = [
-    "worldkernels[dev,serve,diffusers]",
+    "worldkernels[dev,serve,diffusers,metrics]",
 ]
 docs = [
     "mkdocs-material>=9.0.0",
+    "mkdocs-api-autonav>=0.2.1",
     "mkdocstrings[python]>=0.18",
+    "mike>=1.0.0",
+    "tomli>=2.0.0",
+    "pyyaml>=6.0",
+    "mkdocs-git-revision-date-localized-plugin>=1.0.0",
+    "mkdocs-glightbox>=0.3.0",
+    "mkdocs-blog-plugin>=0.1.0",
+    "pymdown-extensions>=9.0",
+    "mkdocs-autorefs",
+    "mkdocs-minify-plugin>=0.3.0",
+    "mkdocs-llmstxt>=0.5.0",
+    "Pillow>=9.0.0"
 ]
 
 [project.scripts]
 worldkernels = "worldkernels.cli.main:app"
+
+[project.entry-points."worldkernels.worlds"]
+dummy = "worldkernels.worlds.adapters.dummy:DummyWorld"
 
 [project.urls]
 Homepage = "https://github.com/soran-ghaderi/worldkernels"
@@ -89,8 +112,11 @@ include = ["worldkernels*"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q"
+addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
+markers = [
+    "gpu: requires a CUDA GPU (skip with -m 'not gpu')",
+]
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -100,5 +126,14 @@ python_version = "3.10"
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["worldkernels"]
+combine-as-imports = true
