@@ -1,0 +1,130 @@
+
+name: Automated Tagging and Release
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  update-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.create_tag.outputs.new_tag }}
+      update_type: ${{ steps.get_update_type.outputs.update_type }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get update type from commit message
+      id: get_update_type
+      run: |
+        commit_message="${{ github.event.head_commit.message }}"
+        if [[ "$commit_message" == *"#major"* ]]; then
+          echo "update_type=major" >> $GITHUB_OUTPUT
+        elif [[ "$commit_message" == *"#minor"* ]]; then
+          echo "update_type=minor" >> $GITHUB_OUTPUT
+        else
+          echo "update_type=patch" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Get latest tag
+      id: get_latest_tag
+      run: |
+        git fetch --tags
+        latest_tag=$(git describe --tags `git rev-list --tags --max-count=1` 2>/dev/null || echo "")
+        echo "latest_tag=${latest_tag}" >> $GITHUB_OUTPUT
+
+    - name: Create new tag
+      id: create_tag
+      run: |
+        latest_tag=${{ steps.get_latest_tag.outputs.latest_tag }}
+        update_type=${{ steps.get_update_type.outputs.update_type }}
+        
+        if [ -z "$latest_tag" ]; then
+          new_tag="v0.1.0"
+        else
+          IFS='.' read -ra VERSION <<< "${latest_tag#v}"
+          major=${VERSION[0]}
+          minor=${VERSION[1]}
+          patch=${VERSION[2]}
+          
+          case $update_type in
+            major)
+              major=$((major+1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor+1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch+1))
+              ;;
+          esac
+          
+          new_tag="v$major.$minor.$patch"
+        fi
+        
+        echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git tag $new_tag
+        git push origin $new_tag
+
+  release:
+    needs: update-tag
+    if: contains(github.event.head_commit.message, '#release')
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    environment: pypi
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine wheel
+
+    - name: Install package for testing
+      run: pip install -e .[dev]
+
+    - name: Run tests
+      run: pytest tests/ -m 'not gpu'
+
+    - name: Build package
+      run: |
+        python -m build --sdist --wheel
+        python -m twine check dist/*
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        verbose: true
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ needs.update-tag.outputs.new_tag }}
+        name: Release ${{ needs.update-tag.outputs.new_tag }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
