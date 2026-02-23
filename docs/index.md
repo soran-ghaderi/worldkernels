@@ -1,5 +1,16 @@
+---
+#template: home.html
+title: WorldKernels
+social:
+  cards_layout_options:
+    title: Documentation
+hide:
+  - navigation
+  - toc
+icon: octicons/home-fill-16
+---
+
+
 # WorldKernels
 
-WorldKernels serves world models as stateful simulation sessions.
-
-This documentation is generated with MkDocs and MkDocStrings.
+Serving world models as stateful simulation sessions.

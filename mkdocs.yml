@@ -10,6 +10,7 @@ exclude_docs: |
   argparse
   *.inc.md
   *.template.md
+  examples/_generated_links.md
 
 theme:
   name: material
@@ -70,12 +71,24 @@ theme:
 
 hooks:
   - docs/hooks/socialmedia.py
+  - docs/hooks/generate_examples.py
+  - docs/hooks/generate_cli_reference.py
+  - docs/hooks/generate_benchmarks.py
+  - docs/hooks/url_schemes.py
+  - docs/hooks/nav_icons.py
 
 plugins:
   - search
+  - blog:
+      blog_dir: blog
+      post_date_format: long
+      post_excerpt: optional
+      post_excerpt_separator: "<!-- more -->"
+      categories: true
   - autorefs
   - api-autonav:
       modules: ["worldkernels"]
+      on_implicit_namespace_package: skip
       module_options:
         package.submodule:
           docstring_style: google
@@ -113,6 +126,7 @@ plugins:
           options:
             docstring_style: google
             show_symbol_type_heading: true
+            show_symbol_type_toc: true
             filters:
               - "!.*_pb2_grpc"  # Exclude auto-generated gRPC stubs
             summary:
@@ -129,7 +143,21 @@ plugins:
             
 nav:
   - Home: index.md
+  - User Guide:
+    - Overview: examples/index.md
+    - Basics: examples/basics/index.md
+  - CLI Reference:
+    - Overview: cli/index.md
+  - Benchmarks:
+    - Overview: benchmarks/index.md
   - API Reference: api
+  - Developer Guide: 
+    - Overview: developer_guide/index.md
+    - Getting Started: developer_guide/getting_started.md
+    - Code Guidelines: developer_guide/code_guidelines.md
+    - Architecture: developer_guide/architecture.md
+    - Performance: developer_guide/performance.md
+
 
 
 markdown_extensions:
@@ -151,7 +179,8 @@ markdown_extensions:
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  - pymdownx.snippets:
+      base_path: ["."]
   # For emoji and icons
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
@@ -190,14 +219,44 @@ extra:
     property: !ENV GOOGLE_ANALYTICS_KEY
   generator: false
 
+  # ── Hook options (mirror mkdocstrings naming conventions) ──────────────
+  cli_reference:
+    heading_level: 1
+    show_source: true
+    show_usage: true
+    show_examples: true
+    show_global_options: true
+    show_subcommands: true
+    show_symbol_type_heading: true   # badge next to command headings
+    show_symbol_type_toc: true       # type in sidebar TOC
+    show_options_table: true         # render option tables per command
+    show_description: true
+    code_block_style: fenced         # fenced | indented
+    members_order: alphabetical      # alphabetical | source
+
+  benchmarks:
+    heading_level: 1
+    show_source: true
+    show_docstring: true
+    show_code: true                  # embed script source in page
+    show_symbol_type_heading: true
+    show_symbol_type_toc: true
+    code_block_style: fenced
+    code_annotations: true           # line numbers in code blocks
+    metrics:
+      show_table: true               # render metrics reference table
+      show_type_badge: true          # type badge in metrics table
+      show_description: true
+      group_by_type: true            # group metrics rows by type
+      members_order: alphabetical    # alphabetical | source
+
 
 extra_css:
   - mkdocs/stylesheets/extra.css
+  - mkdocs/stylesheets/doc-symbols.css
 
 extra_javascript:
-  - mkdocs/javascript/reo.js
-  - mkdocs/javascript/run_llm_widget.js
-  - mkdocs/javascript/mathjax.js
+  - mkdocs/javascript/examples_sidebar_accordion.js
   - https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js
-  - mkdocs/javascript/edit_and_feedback.js
-  - mkdocs/javascript/slack_and_forum.js
+  - mkdocs/javascript/cards-clickable.js
+  - mkdocs/javascript/mathjax.js
