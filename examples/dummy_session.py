@@ -56,10 +56,7 @@ def main() -> None:
         Action("keyboard", {"keys": ["D"]}),
         modalities=["frames"],
     )
-    print(
-        f"  original step {session.step_index}: "
-        f"gen_time={obs_orig.generation_time_ms:.2f}ms"
-    )
+    print(f"  original step {session.step_index}: gen_time={obs_orig.generation_time_ms:.2f}ms")
 
     # 6. Restore to checkpoint
     session.restore(ckpt_id)

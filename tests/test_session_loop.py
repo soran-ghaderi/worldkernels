@@ -151,4 +151,5 @@ class TestDeterminism:
         s2 = engine.create_session("dummy", config=config, seed=123)
         # Same seed should produce same initial latent
         import torch
+
         assert torch.equal(s1.state.data, s2.state.data)

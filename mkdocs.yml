@@ -140,7 +140,7 @@ plugins:
             separate_signature: true
             show_overloads: true
             signature_crossrefs: true
-            
+
 nav:
   - Home: index.md
   - User Guide:
@@ -151,7 +151,7 @@ nav:
   - Benchmarks:
     - Overview: benchmarks/index.md
   - API Reference: api
-  - Developer Guide: 
+  - Developer Guide:
     - Overview: developer_guide/index.md
     - Getting Started: developer_guide/getting_started.md
     - Code Guidelines: developer_guide/code_guidelines.md
@@ -216,7 +216,7 @@ extra:
     provider: mike
   analytics:
     provider: google
-    property: !ENV GOOGLE_ANALYTICS_KEY
+    property: !ENV [GOOGLE_ANALYTICS_KEY, ""]
   generator: false
 
   # ── Hook options (mirror mkdocstrings naming conventions) ──────────────
