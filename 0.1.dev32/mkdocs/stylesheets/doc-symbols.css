@@ -1,0 +1,61 @@
+/* Custom doc-symbol types for CLI reference and benchmarks hooks.
+ * Follows the same pattern as mkdocstrings' _mkdocstrings.css. */
+
+:root, :host,
+[data-md-color-scheme="default"] {
+  --doc-symbol-command-fg-color: #0e7490;
+  --doc-symbol-command-bg-color: #0e74901a;
+  --doc-symbol-subcommand-fg-color: #b45309;
+  --doc-symbol-subcommand-bg-color: #b453091a;
+  --doc-symbol-option-fg-color: #be185d;
+  --doc-symbol-option-bg-color: #be185d1a;
+  --doc-symbol-benchmark-fg-color: #4d7c0f;
+  --doc-symbol-benchmark-bg-color: #4d7c0f1a;
+}
+
+[data-md-color-scheme="slate"] {
+  --doc-symbol-command-fg-color: #67e8f9;
+  --doc-symbol-command-bg-color: #67e8f91a;
+  --doc-symbol-subcommand-fg-color: #fcd34d;
+  --doc-symbol-subcommand-bg-color: #fcd34d1a;
+  --doc-symbol-option-fg-color: #f9a8d4;
+  --doc-symbol-option-bg-color: #f9a8d41a;
+  --doc-symbol-benchmark-fg-color: #a3e635;
+  --doc-symbol-benchmark-bg-color: #a3e6351a;
+}
+
+code.doc-symbol-command,
+a code.doc-symbol-command {
+  color: var(--doc-symbol-command-fg-color);
+  background-color: var(--doc-symbol-command-bg-color);
+}
+code.doc-symbol-command::after {
+  content: "cmd";
+}
+
+code.doc-symbol-subcommand,
+a code.doc-symbol-subcommand {
+  color: var(--doc-symbol-subcommand-fg-color);
+  background-color: var(--doc-symbol-subcommand-bg-color);
+}
+code.doc-symbol-subcommand::after {
+  content: "sub";
+}
+
+code.doc-symbol-option,
+a code.doc-symbol-option {
+  color: var(--doc-symbol-option-fg-color);
+  background-color: var(--doc-symbol-option-bg-color);
+}
+code.doc-symbol-option::after {
+  content: "opt";
+}
+
+code.doc-symbol-benchmark,
+a code.doc-symbol-benchmark {
+  color: var(--doc-symbol-benchmark-fg-color);
+  background-color: var(--doc-symbol-benchmark-bg-color);
+}
+code.doc-symbol-benchmark::after {
+  content: "bench";
+}
