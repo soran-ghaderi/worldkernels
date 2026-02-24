@@ -67,7 +67,7 @@ def _ensure_plugins_loaded() -> None:
         if hasattr(eps, "select"):
             world_eps = eps.select(group="worldkernels.worlds")
         else:
-            world_eps = eps.get("worldkernels.worlds", [])
+            world_eps = eps.get("worldkernels.worlds", [])  # type: ignore[arg-type]
 
         for ep in world_eps:
             try:
