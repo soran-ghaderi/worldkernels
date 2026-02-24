@@ -43,7 +43,7 @@ jobs:
       run: |
         latest_tag=${{ steps.get_latest_tag.outputs.latest_tag }}
         update_type=${{ steps.get_update_type.outputs.update_type }}
-        
+
         if [ -z "$latest_tag" ]; then
           new_tag="v0.1.0"
         else
@@ -51,7 +51,7 @@ jobs:
           major=${VERSION[0]}
           minor=${VERSION[1]}
           patch=${VERSION[2]}
-          
+
           case $update_type in
             major)
               major=$((major+1))
@@ -66,10 +66,10 @@ jobs:
               patch=$((patch+1))
               ;;
           esac
-          
+
           new_tag="v$major.$minor.$patch"
         fi
-        
+
         echo "new_tag=${new_tag}" >> $GITHUB_OUTPUT
         git config user.name github-actions
         git config user.email github-actions@github.com

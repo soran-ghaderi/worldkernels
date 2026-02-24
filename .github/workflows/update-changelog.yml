@@ -50,7 +50,7 @@ jobs:
         id: generate_changelog
         run: |
           echo "Generating changelog from commits between ${{ env.PREVIOUS_TAG }} and v${{ env.VERSION }}"
-          
+
           # Initialize sections
           ADDED=""
           CHANGED=""
@@ -59,23 +59,23 @@ jobs:
           REMOVED=""
           SECURITY=""
           OTHER=""
-          
+
           # Get commits between tags
           if [[ "${{ env.PREVIOUS_TAG }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             COMMIT_RANGE="${{ env.PREVIOUS_TAG }}..v${{ env.VERSION }}"
           else
             COMMIT_RANGE="${{ env.PREVIOUS_TAG }}..HEAD"
           fi
-          
+
           echo "Using commit range: $COMMIT_RANGE"
-          
+
           # Process each commit using process substitution to avoid subshell issues
           while IFS= read -r commit_msg; do
             # Skip merge commits and version bump commits
             if [[ "$commit_msg" =~ ^Merge|^Update.*version|^Bump.*version|^Release.*v[0-9] ]]; then
               continue
             fi
-            
+
             # Parse conventional commit format
             if [[ "$commit_msg" =~ ^feat(\(.+\))?!?:(.+)$ ]]; then
               ADDED="$ADDED\n- ${BASH_REMATCH[2]# }"
@@ -104,48 +104,48 @@ jobs:
               OTHER="$OTHER\n- $commit_msg"
             fi
           done < <(git log --pretty=format:"%s" "$COMMIT_RANGE")
-          
+
           # Build changelog content
           CHANGELOG_CONTENT=""
-          
+
           if [ -n "$ADDED" ]; then
             CHANGELOG_CONTENT="$CHANGELOG_CONTENT\n### Added$ADDED\n"
           fi
-          
+
           if [ -n "$CHANGED" ]; then
             CHANGELOG_CONTENT="$CHANGELOG_CONTENT\n### Changed$CHANGED\n"
           fi
-          
+
           if [ -n "$FIXED" ]; then
             CHANGELOG_CONTENT="$CHANGELOG_CONTENT\n### Fixed$FIXED\n"
           fi
-          
+
           if [ -n "$DEPRECATED" ]; then
             CHANGELOG_CONTENT="$CHANGELOG_CONTENT\n### Deprecated$DEPRECATED\n"
           fi
-          
+
           if [ -n "$REMOVED" ]; then
             CHANGELOG_CONTENT="$CHANGELOG_CONTENT\n### Removed$REMOVED\n"
           fi
-          
+
           if [ -n "$SECURITY" ]; then
             CHANGELOG_CONTENT="$CHANGELOG_CONTENT\n### Security$SECURITY\n"
           fi
-          
+
           if [ -n "$OTHER" ]; then
             CHANGELOG_CONTENT="$CHANGELOG_CONTENT\n### Other$OTHER\n"
           fi
-          
+
           # If no content generated, use a default message
           if [ -z "$CHANGELOG_CONTENT" ]; then
             CHANGELOG_CONTENT="\n### Changed\n- Minor updates and improvements\n"
           fi
-          
+
           # Save to environment
           echo "GENERATED_CHANGELOG<<EOF" >> $GITHUB_ENV
           echo -e "$CHANGELOG_CONTENT" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-          
+
           echo "Generated changelog content:"
           echo -e "$CHANGELOG_CONTENT"
 
@@ -166,23 +166,23 @@ jobs:
               echo '[Unreleased]: https://github.com/soran-ghaderi/worldkernels/compare/HEAD...HEAD'
             } > CHANGELOG.md
           fi
-          
+
           # Ensure [Unreleased] section exists
           if ! grep -q '## \[Unreleased\]' CHANGELOG.md; then
             sed -i '1a ## [Unreleased]' CHANGELOG.md
           fi
-          
+
           # Create new entry in CHANGELOG.md
           sed -i "s/## \[Unreleased\]/## \[Unreleased\]\n\n## \[${{ env.VERSION }}] - ${{ env.DATE }}/g" CHANGELOG.md
-          
+
           # Determine which content to use (priority order):
           # 1. Manual release body with sections
-          # 2. Generated changelog from commits  
+          # 2. Generated changelog from commits
           # 3. GitHub auto-generated release notes
           # 4. Default fallback message
-          
+
           CONTENT_TO_ADD=""
-          
+
           # Check if release body has structured content
           if [[ "${{ env.RELEASE_BODY }}" == *"### "* ]]; then
             echo "Using manual release body content"
@@ -197,7 +197,7 @@ jobs:
             echo "Using fallback content"
             CONTENT_TO_ADD="### Changed\n- Minor updates and improvements"
           fi
-          
+
           # Add the content to the changelog
           if [[ -n "$CONTENT_TO_ADD" ]]; then
             awk -v ver="${{ env.VERSION }}" -v content="$CONTENT_TO_ADD" '
@@ -211,7 +211,7 @@ jobs:
             ' CHANGELOG.md > CHANGELOG.new
             mv CHANGELOG.new CHANGELOG.md
           fi
-          
+
           # Update links section at the bottom
           if ! grep -q "\[${{ env.VERSION }}\]: " CHANGELOG.md; then
             sed -i "s|\[Unreleased\]: .*|[Unreleased]: https://github.com/soran-ghaderi/worldkernels/compare/v${{ env.VERSION }}...HEAD\n[${{ env.VERSION }}]: https://github.com/soran-ghaderi/worldkernels/releases/tag/v${{ env.VERSION }}|g" CHANGELOG.md
@@ -224,7 +224,7 @@ jobs:
             echo "No changes to CHANGELOG.md"
             exit 0
           fi
-          
+
           git add CHANGELOG.md
           git commit -m "Update CHANGELOG.md for v${{ env.VERSION }}"
-          git push origin master 
+          git push origin master
