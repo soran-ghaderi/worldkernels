@@ -98,8 +98,9 @@ jobs:
           fi
 
           # Initialize gh-pages branch if it doesn't exist
-          git fetch origin gh-pages || git checkout --orphan gh-pages
-          if ! git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+          CURRENT_REF=$(git rev-parse HEAD)
+
+          if ! git fetch origin gh-pages 2>/dev/null; then
             # If gh-pages doesn't exist on remote, create it
             git checkout --orphan gh-pages
             git rm -rf .
@@ -107,14 +108,14 @@ jobs:
             git add .nojekyll
             git commit -m "Initialize gh-pages branch"
             git push -u origin gh-pages
-            git checkout -
           else
-            # If it exists, ensure we have it locally
+            # If it exists, ensure we have it locally and up to date
             git checkout gh-pages || git checkout -b gh-pages origin/gh-pages
-            # Make sure it's up to date
             git pull origin gh-pages
-            git checkout -
           fi
+
+          # Switch back explicitly to the original commit
+          git checkout "$CURRENT_REF"
       - name: Extract clean version
         run: |
           CLEAN_VERSION=$(echo "$VERSION" | cut -d'+' -f1)
