@@ -27,9 +27,7 @@ def get_world_class(name: str) -> type[AbstractWorld]:
     _ensure_plugins_loaded()
     if name not in _REGISTRY:
         available = ", ".join(sorted(_REGISTRY)) or "(none)"
-        raise KeyError(
-            f"World '{name}' not found in registry. Available: {available}"
-        )
+        raise KeyError(f"World '{name}' not found in registry. Available: {available}")
     return _REGISTRY[name]
 
 
@@ -41,6 +39,7 @@ def list_worlds() -> list[str]:
 
 # ---- built-in registrations ---------------------------------------------
 
+
 def _register_builtins() -> None:
     from worldkernels.worlds.adapters.dummy import DummyWorld
 
@@ -48,6 +47,7 @@ def _register_builtins() -> None:
 
 
 # ---- entry_points discovery (lazy, once) --------------------------------
+
 
 def _ensure_plugins_loaded() -> None:
     global _plugins_loaded

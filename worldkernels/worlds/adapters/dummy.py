@@ -82,9 +82,7 @@ class DummyWorld(AbstractWorld):
         if "frames" in modalities:
             h = state.data.shape[-2] * _LATENT_FACTOR
             w = state.data.shape[-1] * _LATENT_FACTOR
-            frame_tensor = torch.randint(
-                0, 256, (h, w, 3), dtype=torch.uint8, device="cpu"
-            )
+            frame_tensor = torch.randint(0, 256, (h, w, 3), dtype=torch.uint8, device="cpu")
             frames = [frame_tensor.numpy().tobytes()]
 
         if "depth" in modalities:
@@ -125,7 +123,10 @@ class DummyWorld(AbstractWorld):
         lh = config.height // _LATENT_FACTOR
         lw = config.width // _LATENT_FACTOR
         data = torch.randn(
-            1, _LATENT_C, lh, lw,
+            1,
+            _LATENT_C,
+            lh,
+            lw,
             generator=gen,
             dtype=self.dtype,
             device=self.device if self.device != "cpu" else "cpu",

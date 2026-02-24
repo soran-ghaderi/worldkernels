@@ -68,7 +68,9 @@ class WorldKernel:
 
         log.info(
             "WorldKernel initialized: device=%s, dtype=%s, max_sessions=%d",
-            device, self.dtype, max_sessions,
+            device,
+            self.dtype,
+            max_sessions,
         )
 
     # ---- world loading ---------------------------------------------------
@@ -165,10 +167,7 @@ class WorldKernel:
         r"""Unload a world model and close all its sessions."""
         if name not in self._worlds:
             raise WorldNotFoundError(name)
-        sessions_to_close = [
-            sid for sid, sess in self._sessions.items()
-            if sess.world_id == name
-        ]
+        sessions_to_close = [sid for sid, sess in self._sessions.items() if sess.world_id == name]
         for sid in sessions_to_close:
             self.close_session(sid)
         del self._worlds[name]

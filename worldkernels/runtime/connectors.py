@@ -82,10 +82,7 @@ class ConnectorRegistry:
     @classmethod
     def create(cls, name: str, **kwargs: Any) -> StageConnector:
         if name not in cls._registry:
-            raise KeyError(
-                f"Unknown connector '{name}'. "
-                f"Available: {list(cls._registry.keys())}"
-            )
+            raise KeyError(f"Unknown connector '{name}'. Available: {list(cls._registry.keys())}")
         return cls._registry[name](**kwargs)
 
     @classmethod

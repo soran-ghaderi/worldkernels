@@ -43,8 +43,7 @@ class Executor:
         self.device = device
         self.dtype = dtype
         self.stage_configs = {
-            cfg.stage_type: cfg
-            for cfg in (stage_configs or DEFAULT_PIPELINE_STAGES)
+            cfg.stage_type: cfg for cfg in (stage_configs or DEFAULT_PIPELINE_STAGES)
         }
         self.connector = connector or LocalConnector()
 
@@ -141,7 +140,9 @@ class Executor:
         timing.encode_action_ms = encode_out.timing_ms
 
         transition_out = self.execute_transition(
-            world, state, encode_out.data,
+            world,
+            state,
+            encode_out.data,
         )
         timing.transition_ms = transition_out.timing_ms
         new_state = transition_out.data
