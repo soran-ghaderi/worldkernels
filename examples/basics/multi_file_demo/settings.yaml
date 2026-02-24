@@ -1,0 +1,6 @@
+world: dummy
+height: 64
+width: 64
+frames_per_step: 1
+modalities:
+  - frames

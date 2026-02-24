@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Ask a Question
+    url: https://github.com/soran-ghaderi/worldkernels/discussions
+    about: Ask questions and discuss WorldKernels with the community
+  - name: 📖 Documentation
+    url: https://soran-ghaderi.github.io/worldkernels/
+    about: Check out our comprehensive documentation and guides

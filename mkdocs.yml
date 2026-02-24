@@ -1,0 +1,262 @@
+site_name: WorldKernels
+site_description: GPU-first world model simulation engine
+site_url: https://soran-ghaderi.github.io/worldkernels/
+repo_url: https://github.com/soran-ghaderi/worldkernels
+repo_name: soran-ghaderi/worldkernels
+site_author: Soran Ghaderi
+edit_uri: edit/main/docs/
+copyright: Copyright © 2025 Soran Ghaderi. Licensed under the GPLv2 License.
+exclude_docs: |
+  argparse
+  *.inc.md
+  *.template.md
+  examples/_generated_links.md
+
+theme:
+  name: material
+  features:
+  - navigation.tabs
+  - navigation.sections
+  - navigation.indexes
+  - navigation.top
+  - navigation.tracking
+  - navigation.path
+  - navigation.instant
+  - navigation.instant.progress
+  - navigation.tabs
+  - navigation.tabs.sticky
+  - toc.follow
+  - search.suggest
+  - search.highlight
+  - search.share
+  - content.tabs.link
+  - content.code.annotation
+  - content.code.copy
+  - content.tooltips
+  - content.action.edit
+  - header.autohide
+  - announce.dismiss
+  - navigation.footer
+  palette:
+  # Palette toggle for dark mode (default)
+  - scheme: slate
+    primary: black
+    accent: lime
+    toggle:
+      icon: material/brightness-4
+      name: Switch to light mode
+  # Palette toggle for light mode
+  - scheme: default
+    primary: black
+    accent: lime
+    toggle:
+      icon: material/brightness-7
+      name: Switch to dark mode
+  font: false
+  icon:
+    repo: fontawesome/brands/github
+    admonition:
+      note: fontawesome/solid/note-sticky
+      abstract: fontawesome/solid/book
+      info: fontawesome/solid/circle-info
+      tip: fontawesome/solid/bullhorn
+      success: fontawesome/solid/check
+      question: fontawesome/solid/circle-question
+      warning: fontawesome/solid/triangle-exclamation
+      failure: fontawesome/solid/bomb
+      danger: fontawesome/solid/skull
+      bug: fontawesome/solid/robot
+      example: fontawesome/solid/flask
+      quote: fontawesome/solid/quote-left
+
+hooks:
+  - docs/hooks/socialmedia.py
+  - docs/hooks/generate_examples.py
+  - docs/hooks/generate_cli_reference.py
+  - docs/hooks/generate_benchmarks.py
+  - docs/hooks/url_schemes.py
+  - docs/hooks/nav_icons.py
+
+plugins:
+  - search
+  - blog:
+      blog_dir: blog
+      post_date_format: long
+      post_excerpt: optional
+      post_excerpt_separator: "<!-- more -->"
+      categories: true
+  - autorefs
+  - api-autonav:
+      modules: ["worldkernels"]
+      on_implicit_namespace_package: skip
+      module_options:
+        package.submodule:
+          docstring_style: google
+          show_signature: false
+        ".*":
+          heading_level: 1
+          show_symbol_type_heading: true
+
+      api_root_uri: "api"
+      exclude:
+        - 're:worldkernels\._.*'
+        - "worldkernels.third_party"
+        - "worldkernels.worldkernels_flash_attn"
+        - "re:worldkernels\\.grpc\\..*_pb2.*"  # Auto-generated protobuf files
+        - !ENV [API_AUTONAV_EXCLUDE, "re:^$"]  # Match nothing by default
+
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+      cache_safe: true
+      js_files: [docs/mkdocs/javascript/*.js]
+      css_files: [docs/mkdocs/stylesheets/*.css]
+  - glightbox:
+      touchNavigation: true
+      loop: false
+      effect: zoom
+      width: 100%
+      height: auto
+      zoomable: true
+      draggable: true
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            filters:
+              - "!.*_pb2_grpc"  # Exclude auto-generated gRPC stubs
+            summary:
+              modules: true
+            show_source: true
+            show_signature_annotations: true
+            members_order: source
+            inherited_members: true
+            separate_signature: true
+            show_if_no_docstring: true
+            separate_signature: true
+            show_overloads: true
+            signature_crossrefs: true
+
+nav:
+  - Home: index.md
+  - User Guide:
+    - Overview: examples/index.md
+    - Basics: examples/basics/index.md
+  - CLI Reference:
+    - Overview: cli/index.md
+  - Benchmarks:
+    - Overview: benchmarks/index.md
+  - API Reference: api
+  - Developer Guide:
+    - Overview: developer_guide/index.md
+    - Getting Started: developer_guide/getting_started.md
+    - Code Guidelines: developer_guide/code_guidelines.md
+    - Architecture: developer_guide/architecture.md
+    - Performance: developer_guide/performance.md
+
+
+
+markdown_extensions:
+  - attr_list
+  - def_list
+  - md_in_html
+  - admonition
+  - pymdownx.details
+  # For content tabs
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+      alternate_style: true
+  # For code highlighting
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ["."]
+  # For emoji and icons
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  # For in page [TOC] (not sidebar)
+  - toc:
+      permalink: true
+  # For math rendering
+  - pymdownx.arithmatex:
+      generic: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/soran-ghaderi
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/worldkernels/
+    - icon: fontawesome/brands/bluesky
+      link: https://bsky.app/profile/soranghaderi.bsky.social
+    - icon: fontawesome/brands/x-twitter
+      link: https://twitter.com/soranghadri
+    - icon: fontawesome/brands/linkedin
+      link: https://www.linkedin.com/in/soran-ghaderi/
+    - icon: fontawesome/brands/google-scholar
+      link: https://scholar.google.com/citations?user=-2N2iKcAAAAJ&hl=en
+    - icon: fontawesome/brands/researchgate
+      link: https://www.researchgate.net/profile/Soran-Ghaderi
+    - icon: fontawesome/brands/orcid
+      link: https://orcid.org/0009-0004-6564-4517
+    - icon: material/web
+      link: https://soran-ghaderi.github.io/
+  version:
+    provider: mike
+  analytics:
+    provider: google
+    property: !ENV [GOOGLE_ANALYTICS_KEY, ""]
+  generator: false
+
+  # ── Hook options (mirror mkdocstrings naming conventions) ──────────────
+  cli_reference:
+    heading_level: 1
+    show_source: true
+    show_usage: true
+    show_examples: true
+    show_global_options: true
+    show_subcommands: true
+    show_symbol_type_heading: true   # badge next to command headings
+    show_symbol_type_toc: true       # type in sidebar TOC
+    show_options_table: true         # render option tables per command
+    show_description: true
+    code_block_style: fenced         # fenced | indented
+    members_order: alphabetical      # alphabetical | source
+
+  benchmarks:
+    heading_level: 1
+    show_source: true
+    show_docstring: true
+    show_code: true                  # embed script source in page
+    show_symbol_type_heading: true
+    show_symbol_type_toc: true
+    code_block_style: fenced
+    code_annotations: true           # line numbers in code blocks
+    metrics:
+      show_table: true               # render metrics reference table
+      show_type_badge: true          # type badge in metrics table
+      show_description: true
+      group_by_type: true            # group metrics rows by type
+      members_order: alphabetical    # alphabetical | source
+
+
+extra_css:
+  - mkdocs/stylesheets/extra.css
+  - mkdocs/stylesheets/doc-symbols.css
+
+extra_javascript:
+  - mkdocs/javascript/examples_sidebar_accordion.js
+  - https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js
+  - mkdocs/javascript/cards-clickable.js
+  - mkdocs/javascript/mathjax.js

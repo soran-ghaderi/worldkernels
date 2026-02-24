@@ -36,8 +36,7 @@ class VRAMExhaustedError(WorldKernelError):
         self.required_mb = required_mb
         self.available_mb = available_mb
         super().__init__(
-            f"Not enough VRAM: need {required_mb:.0f} MB, "
-            f"only {available_mb:.0f} MB available."
+            f"Not enough VRAM: need {required_mb:.0f} MB, only {available_mb:.0f} MB available."
         )
 
 
@@ -58,9 +57,7 @@ class CheckpointNotFoundError(WorldKernelError):
     def __init__(self, checkpoint_id: str, session_id: str) -> None:
         self.checkpoint_id = checkpoint_id
         self.session_id = session_id
-        super().__init__(
-            f"Checkpoint '{checkpoint_id}' not found in session '{session_id}'."
-        )
+        super().__init__(f"Checkpoint '{checkpoint_id}' not found in session '{session_id}'.")
 
 
 class SessionPausedError(WorldKernelError):

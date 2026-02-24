@@ -10,7 +10,9 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from worldkernels.core.action import Action
     from worldkernels.core.config import WorldConfig
+    from worldkernels.core.observation import Observation
     from worldkernels.runtime.executor import Executor
     from worldkernels.worlds.base import AbstractWorld
 
@@ -84,10 +86,10 @@ class Session:
 
     def step(
         self,
-        action,
+        action: Action,
         modalities: list[str] | None = None,
         decode: bool = True,
-    ):
+    ) -> Observation:
         r"""Execute one simulation step through the three-stage pipeline.
 
         Args:

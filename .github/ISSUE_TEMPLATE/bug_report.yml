@@ -1,0 +1,65 @@
+name: 🐞 Report an Issue
+description: Report a bug, performance issue, or documentation gap.
+title: "[Issue]: "
+labels: ["bug", "subtask", "needs triage", "help wanted"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve WorldKernels! Please provide the following information.
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Type of Issue
+      description: What type of issue are you reporting?
+      options:
+        - "Bug Report"
+        - "Performance Issue"
+        - "Documentation Issue"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: "A clear and concise description of the issue. For bugs, describe what happened and what you expected."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce / Context
+      description: "For bugs, please provide steps to reproduce. For other issues, provide relevant context."
+      value: |
+        1.
+        2.
+        3.
+
+  - type: textarea
+    id: code-example
+    attributes:
+      label: Minimal Code Example (if applicable)
+      description: "Provide a self-contained, runnable code snippet that demonstrates the issue."
+      render: python
+      placeholder: |
+        import torch
+        import worldkernels
+        # Your code here
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: "Please provide your WorldKernels, PyTorch, and Python versions, and your OS."
+      placeholder: |
+        - WorldKernels version:
+        - PyTorch version:
+        - Python version:
+        - CUDA version:
+        - GPU:
+        - OS: (e.g., Linux, macOS, Windows)
