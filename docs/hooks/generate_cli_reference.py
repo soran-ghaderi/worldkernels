@@ -72,19 +72,16 @@ class CLIOptions:
     def heading_symbol(self, kind: str) -> str:
         r"""Return ``<code class="doc-symbol ...">`` HTML badge for headings."""
         if self.show_symbol_type_heading:
-            return (
-                f'<code class="doc-symbol doc-symbol-heading'
-                f' doc-symbol-{kind}"></code> '
-            )
+            return f'<code class="doc-symbol doc-symbol-heading doc-symbol-{kind}"></code> '
         return ""
 
 
 def _slugify(text: str) -> str:
     r"""Simple slugify matching Python-Markdown's toc default."""
     slug = text.lower().strip()
-    slug = re.sub(r'[^\w\s-]', '', slug)
-    slug = re.sub(r'[-\s]+', '-', slug)
-    return slug.strip('-')
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[-\s]+", "-", slug)
+    return slug.strip("-")
 
 
 def _write_if_changed(path: Path, content: str) -> bool:
@@ -351,27 +348,33 @@ class CLIReferenceGenerator:
         ]
 
         if o.show_description:
-            lines.extend([
-                self.root_description or "Command-line interface for WorldKernels.",
-                "",
-            ])
+            lines.extend(
+                [
+                    self.root_description or "Command-line interface for WorldKernels.",
+                    "",
+                ]
+            )
 
         if o.show_usage:
-            lines.extend([
-                f"{h(1)} Usage",
-                "",
-                "```bash",
-                "worldkernels <command> [options]",
-                "```",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Usage",
+                    "",
+                    "```bash",
+                    "worldkernels <command> [options]",
+                    "```",
+                    "",
+                ]
+            )
 
-        lines.extend([
-            f"{h(1)} Commands",
-            "",
-            "| Command | Description |",
-            "|---------|-------------|",
-        ])
+        lines.extend(
+            [
+                f"{h(1)} Commands",
+                "",
+                "| Command | Description |",
+                "|---------|-------------|",
+            ]
+        )
         for name in self._sorted_commands():
             cmd = self.commands[name]
             desc = cmd.description or _MDASH
@@ -379,15 +382,17 @@ class CLIReferenceGenerator:
         lines.append("")
 
         if o.show_global_options:
-            lines.extend([
-                f"{h(1)} Global Options",
-                "",
-                "| Flag | Description |",
-                "|------|-------------|",
-                "| `--help`, `-h` | Show help message and exit |",
-                "| `--version`, `-V` | Show version and exit |",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Global Options",
+                    "",
+                    "| Flag | Description |",
+                    "|------|-------------|",
+                    "| `--help`, `-h` | Show help message and exit |",
+                    "| `--version`, `-V` | Show version and exit |",
+                    "",
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -405,22 +410,26 @@ class CLIReferenceGenerator:
             lines.extend([cmd.description, ""])
 
         if o.show_usage:
-            lines.extend([
-                f"{h(1)} Usage",
-                "",
-                "```bash",
-                cmd.usage or f"worldkernels {cmd.name}",
-                "```",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Usage",
+                    "",
+                    "```bash",
+                    cmd.usage or f"worldkernels {cmd.name}",
+                    "```",
+                    "",
+                ]
+            )
 
         if o.show_options_table and cmd.options:
-            lines.extend([
-                f"{h(1)} Options",
-                "",
-                "| Flag | Metavar | Description |",
-                "|------|---------|-------------|",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Options",
+                    "",
+                    "| Flag | Metavar | Description |",
+                    "|------|---------|-------------|",
+                ]
+            )
             for opt in cmd.options:
                 flags = ", ".join(f"`{f}`" for f in opt.flags)
                 meta = f"`{opt.metavar}`" if opt.metavar else _MDASH
@@ -429,12 +438,14 @@ class CLIReferenceGenerator:
             lines.append("")
 
         if o.show_subcommands and cmd.subcommands:
-            lines.extend([
-                f"{h(1)} Subcommands",
-                "",
-                "| Subcommand | Description |",
-                "|------------|-------------|",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Subcommands",
+                    "",
+                    "| Subcommand | Description |",
+                    "|------------|-------------|",
+                ]
+            )
             for sub in cmd.subcommands:
                 lines.append(f"| `{sub.name}` | {sub.description} |")
             lines.append("")
@@ -442,21 +453,25 @@ class CLIReferenceGenerator:
             for sub in cmd.subcommands:
                 sub_text = f"worldkernels {cmd.name} {sub.name}"
                 sub_symbol = o.heading_symbol("subcommand")
-                lines.extend([
-                    f"{h(2)} {sub_symbol}{sub_text}",
-                    "",
-                ])
+                lines.extend(
+                    [
+                        f"{h(2)} {sub_symbol}{sub_text}",
+                        "",
+                    ]
+                )
                 if o.show_symbol_type_toc:
                     _TOC_SYMBOLS[_slugify(sub_text)] = "subcommand"
                 if o.show_description:
                     lines.extend([sub.description, ""])
                 if o.show_usage:
-                    lines.extend([
-                        "```bash",
-                        sub.usage,
-                        "```",
-                        "",
-                    ])
+                    lines.extend(
+                        [
+                            "```bash",
+                            sub.usage,
+                            "```",
+                            "",
+                        ]
+                    )
 
         if o.show_examples and cmd.examples:
             lines.extend([f"{h(1)} Examples", "", "```bash"])
@@ -511,16 +526,13 @@ def on_post_page(output: str, page, config) -> str | None:
         return None
     modified = output
     for slug, kind in _TOC_SYMBOLS.items():
-        badge = (
-            f'<code class="doc-symbol doc-symbol-toc'
-            f' doc-symbol-{kind}"></code>\u00a0'
-        )
+        badge = f'<code class="doc-symbol doc-symbol-toc doc-symbol-{kind}"></code>\u00a0'
         pattern = re.compile(
             rf'(href="#{re.escape(slug)}"[^>]*?class="md-nav__link"[^>]*?>\s*'
-            rf'<span[^>]*?>\s*)',
+            rf"<span[^>]*?>\s*)",
             re.DOTALL,
         )
-        modified = pattern.sub(rf'\g<1>{badge}', modified)
+        modified = pattern.sub(rf"\g<1>{badge}", modified)
     return modified if modified != output else None
 
 

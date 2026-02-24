@@ -306,7 +306,7 @@ figcaption {
     margin-right: auto;
     font-size: 0.85rem;
   }
-  
+
   .energy-caption .arithmatex {
     font-size: 0.9rem;
   }
@@ -341,16 +341,16 @@ figcaption {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
-  
+
   .energy-others {
     grid-template-columns: repeat(3, 1fr);
     grid-template-rows: 1fr;
   }
-  
+
   .energy-main img {
     width: 280px;
   }
-  
+
   .energy-others img {
     width: 100px;
   }
@@ -361,11 +361,11 @@ figcaption {
     grid-template-columns: repeat(3, 1fr);
     gap: 0.5rem;
   }
-  
+
   .energy-main img {
     width: 240px;
   }
-  
+
   .energy-others img {
     width: 80px;
   }
@@ -406,4 +406,4 @@ figcaption {
 
 .grid-item.grid-small img:hover {
   opacity: 1;
-} 
+}

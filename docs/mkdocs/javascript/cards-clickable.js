@@ -34,5 +34,3 @@
   // Run again on navigation (Material SPA behavior)
   document.addEventListener('DOMContentSwitch', function () { enhanceCards(document); });
 })();
-
-

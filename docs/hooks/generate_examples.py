@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from itertools import chain
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 logger = logging.getLogger("mkdocs")
 
@@ -20,6 +20,7 @@ def _write_if_changed(path: Path, content: str) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return True
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 EXAMPLES_DIR = ROOT_DIR / "examples"
@@ -148,7 +149,7 @@ class Example:
         ext = file.suffix[1:].lower()
         lang = LANGUAGE_ALIASES.get(ext, ext)
         rel_path = file.relative_to(ROOT_DIR).as_posix()
-        return f"{code_fence}{lang}\n--8<-- \"{rel_path}\"\n{code_fence}\n"
+        return f'{code_fence}{lang}\n--8<-- "{rel_path}"\n{code_fence}\n'
 
     def _source_url(self) -> str:
         url_prefix = "tree/main" if self.path.is_dir() else "blob/main"
@@ -349,7 +350,10 @@ class ExampleGenerator:
                 lines.append(readme_content)
                 lines.append("")
 
-            lines.append(f"Generated from `{(self.examples_dir / category).relative_to(self.root_dir).as_posix()}`.",)
+            rel = (self.examples_dir / category).relative_to(self.root_dir).as_posix()
+            lines.append(
+                f"Generated from `{rel}`.",
+            )
             lines.append("")
 
             for example, doc_path in sorted(
@@ -360,7 +364,9 @@ class ExampleGenerator:
                 lines.append(f"- [{example.title}]({link_target})")
 
             if _write_if_changed(category_index, "\n".join(lines) + "\n"):
-                logger.debug("Category index generated: %s", category_index.relative_to(self.root_dir))
+                logger.debug(
+                    "Category index generated: %s", category_index.relative_to(self.root_dir)
+                )
 
 
 def _generate_examples_docs() -> int:

@@ -91,7 +91,10 @@ class BenchOptions:
         extra = config.get("extra", {}).get("benchmarks", {})
         metrics_raw = extra.pop("metrics", {}) if isinstance(extra, dict) else {}
         merged = {**_BENCH_DEFAULTS, **{k: v for k, v in extra.items() if k in _BENCH_DEFAULTS}}
-        m_merged = {**_METRICS_DEFAULTS, **{k: v for k, v in metrics_raw.items() if k in _METRICS_DEFAULTS}}
+        m_merged = {
+            **_METRICS_DEFAULTS,
+            **{k: v for k, v in metrics_raw.items() if k in _METRICS_DEFAULTS},
+        }
         return cls(**merged, metrics=MetricsOptions(**m_merged))
 
     def heading(self, level_offset: int = 0) -> str:
@@ -100,10 +103,7 @@ class BenchOptions:
     def heading_symbol(self, kind: str) -> str:
         r"""Return ``<code class="doc-symbol ...">`` HTML badge for headings."""
         if self.show_symbol_type_heading:
-            return (
-                f'<code class="doc-symbol doc-symbol-heading'
-                f' doc-symbol-{kind}"></code> '
-            )
+            return f'<code class="doc-symbol doc-symbol-heading doc-symbol-{kind}"></code> '
         return ""
 
 
@@ -188,9 +188,7 @@ class MetricExtractor(ast.NodeVisitor):
         if not self.metrics:
             module_doc = ast.get_docstring(tree) or ""
             for m in self.DOCSTRING_RE.finditer(module_doc):
-                self.metrics.append(
-                    Metric(name=m.group("name"), type=m.group("type"))
-                )
+                self.metrics.append(Metric(name=m.group("name"), type=m.group("type")))
 
         return self.metrics
 
@@ -206,9 +204,7 @@ class MetricExtractor(ast.NodeVisitor):
             name = self._extract_str(node, "name", pos=0)
             doc = self._extract_str(node, "documentation", pos=1)
             if name:
-                self.metrics.append(
-                    Metric(name=name, type=metric_type, documentation=doc or "")
-                )
+                self.metrics.append(Metric(name=name, type=metric_type, documentation=doc or ""))
 
         self.generic_visit(node)
 
@@ -309,11 +305,7 @@ def _discover_benchmarks(opts: BenchOptions) -> list[Benchmark]:
 
     benchmarks = []
     for path in sorted(BENCHMARKS_DIR.rglob("*")):
-        if (
-            path.is_file()
-            and path.suffix in SUPPORTED_EXTENSIONS
-            and not path.name.startswith("_")
-        ):
+        if path.is_file() and path.suffix in SUPPORTED_EXTENSIONS and not path.name.startswith("_"):
             benchmarks.append(Benchmark(path=path, opts=opts))
     return benchmarks
 
@@ -353,42 +345,46 @@ class BenchmarksGenerator:
             "",
             f"{h()} Benchmarks & Metrics",
             "",
-            "Auto-generated from `benchmarks/` scripts and"
-            " `worldkernels/runtime/metrics.py`.",
+            "Auto-generated from `benchmarks/` scripts and `worldkernels/runtime/metrics.py`.",
             "",
         ]
 
         if self.metrics and o.metrics.show_table:
-            lines.extend([
-                f"{h(1)} Prometheus Metrics",
-                "",
-                "The following metrics are exported on the `/metrics` endpoint.",
-                "",
-                _generate_metrics_table(self.metrics, o.metrics),
-                "",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Prometheus Metrics",
+                    "",
+                    "The following metrics are exported on the `/metrics` endpoint.",
+                    "",
+                    _generate_metrics_table(self.metrics, o.metrics),
+                    "",
+                ]
+            )
 
         if self.benchmarks:
-            lines.extend([
-                f"{h(1)} Benchmark Scripts",
-                "",
-                "| Script | Description |",
-                "|--------|-------------|",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Benchmark Scripts",
+                    "",
+                    "| Script | Description |",
+                    "|--------|-------------|",
+                ]
+            )
             for b in self.benchmarks:
                 desc = b.docstring.split("\n")[0].strip() if b.docstring else _MDASH
                 lines.append(f"| [{b.title}]({b.path.stem}.md) | {desc} |")
             lines.append("")
 
         if not self.benchmarks and not self.metrics:
-            lines.extend([
-                "*No benchmarks or metrics available yet.*",
-                "",
-                "Add benchmark scripts to `benchmarks/` or define metrics in",
-                "`worldkernels/runtime/metrics.py` and they will appear here"
-                " automatically.",
-                "",
-            ])
+            lines.extend(
+                [
+                    "*No benchmarks or metrics available yet.*",
+                    "",
+                    "Add benchmark scripts to `benchmarks/` or define metrics in",
+                    "`worldkernels/runtime/metrics.py` and they will appear here automatically.",
+                    "",
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -398,8 +394,7 @@ class BenchmarksGenerator:
         lines = [
             f"{h()} Metrics Reference",
             "",
-            "Prometheus-style metrics exported by WorldKernels on the"
-            " `/metrics` endpoint.",
+            "Prometheus-style metrics exported by WorldKernels on the `/metrics` endpoint.",
             "",
             "Auto-generated from source files. Do not edit manually.",
             "",
@@ -428,9 +423,7 @@ class BenchmarksGenerator:
         keep = set(written)
         for md in BENCHMARKS_DOC_DIR.glob("*.md"):
             if md not in keep:
-                logger.info(
-                    "Removing stale benchmark doc: %s", md.relative_to(ROOT_DIR)
-                )
+                logger.info("Removing stale benchmark doc: %s", md.relative_to(ROOT_DIR))
                 md.unlink()
 
         return written

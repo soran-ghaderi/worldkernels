@@ -18,9 +18,7 @@ SECTION_ICONS: dict[str, str] = {
 }
 
 
-def on_page_markdown(
-    markdown: str, *, page: Page, config: MkDocsConfig, files: Files
-) -> str:
+def on_page_markdown(markdown: str, *, page: Page, config: MkDocsConfig, files: Files) -> str:
     if "icon" in page.meta:
         return markdown
 
@@ -29,7 +27,12 @@ def on_page_markdown(
         if src == prefix or src == f"{prefix}index.md":
             page.meta["icon"] = icon
             break
-        if prefix.endswith("/") and src.startswith(prefix) and src.count("/") <= 2 and src.endswith("index.md"):
+        if (
+            prefix.endswith("/")
+            and src.startswith(prefix)
+            and src.count("/") <= 2
+            and src.endswith("index.md")
+        ):
             page.meta["icon"] = icon
             break
 

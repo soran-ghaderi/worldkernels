@@ -1,5 +1,5 @@
-from textwrap import dedent
 import urllib.parse
+from textwrap import dedent
 
 x_intent = "https://x.com/intent/tweet"
 fb_sharer = "https://www.facebook.com/sharer/sharer.php"
