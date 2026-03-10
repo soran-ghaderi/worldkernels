@@ -1,9 +1,0 @@
-torch>=2.1.0
-diffusers>=1.29.0
-transformers>=4.35.0
-accelerate>=0.22.0
-imageio>=2.30.0
-imageio-ffmpeg>=0.4.10
-tqdm>=4.66.0
-safetensors>=0.3.0
-opencv-python>=4.8.1
