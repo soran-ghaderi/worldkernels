@@ -6,7 +6,7 @@ from itertools import chain
 from pathlib import Path
 from typing import Any
 
-from mkdocs.structure.files import File
+import _virtual_registry as registry
 
 logger = logging.getLogger("mkdocs")
 
@@ -29,9 +29,6 @@ LANGUAGE_ALIASES = {
     "py": "python",
     "sh": "bash",
 }
-
-_virtual_pages: dict[str, str] = {}
-
 
 def _title(text: str) -> str:
     text = text.replace("_", " ").replace("/", " - ").title()
@@ -271,14 +268,14 @@ def _generate_links_page(grouped: dict[str, list[tuple[Example, str]]]) -> str:
     return "\n".join(lines).rstrip() + "\n" if lines else "- No examples found.\n"
 
 
-def _build_examples_nav() -> list[dict[str, Any]]:
+def _build_examples_nav(registered: set[str]) -> list[dict[str, Any]]:
     inner: list[dict[str, Any]] = []
 
-    if "examples/index.md" in _virtual_pages or (DOCS_DIR / "examples/index.md").exists():
+    if "examples/index.md" in registered or (DOCS_DIR / "examples/index.md").exists():
         inner.append({"Overview": "examples/index.md"})
 
     categorized: dict[str, list[str]] = {}
-    for src_path in sorted(_virtual_pages):
+    for src_path in sorted(registered):
         if src_path in ("examples/index.md", "examples/_generated_links.md"):
             continue
         parts = Path(src_path).parts
@@ -293,7 +290,7 @@ def _build_examples_nav() -> list[dict[str, Any]]:
     for category in sorted(k for k in categorized if k != "_general"):
         section: list[dict[str, Any]] = []
         index_path = f"examples/{category}/index.md"
-        if index_path in _virtual_pages:
+        if index_path in registered:
             section.append({"Overview": index_path})
         for src_path in categorized[category]:
             section.append({_title(Path(src_path).stem): src_path})
@@ -305,59 +302,41 @@ def _build_examples_nav() -> list[dict[str, Any]]:
 
 def on_config(config):
     r"""Discover examples and populate virtual pages. No files written to disk."""
-    _virtual_pages.clear()
+    registry.clear_prefix("examples/")
 
     examples = _discover_examples()
     logger.info("Discovered %d examples for virtual generation", len(examples))
 
+    registered: set[str] = set()
     grouped: dict[str, list[tuple[Example, str]]] = {}
     for example in examples:
         src_path = _doc_src_path(example)
-        _virtual_pages[src_path] = example.generate()
+        registry.register(src_path, example.generate())
+        registered.add(src_path)
         grouped.setdefault(example.category, []).append((example, src_path))
 
     for category, entries in grouped.items():
         if category == "general":
             continue
-        _virtual_pages[f"examples/{category}/index.md"] = _generate_category_page(
-            category, entries
-        )
+        index_src = f"examples/{category}/index.md"
+        registry.register(index_src, _generate_category_page(category, entries))
+        registered.add(index_src)
 
-    _virtual_pages["examples/_generated_links.md"] = _generate_links_page(grouped)
+    links_src = "examples/_generated_links.md"
+    registry.register(links_src, _generate_links_page(grouped))
+    registered.add(links_src)
 
     nav = config.get("nav") or []
     new_nav: list[Any] = []
     replaced = False
     for item in nav:
         if isinstance(item, dict) and "User Guide" in item:
-            new_nav.append({"User Guide": _build_examples_nav()})
+            new_nav.append({"User Guide": _build_examples_nav(registered)})
             replaced = True
         else:
             new_nav.append(item)
     if not replaced:
-        new_nav.append({"User Guide": _build_examples_nav()})
+        new_nav.append({"User Guide": _build_examples_nav(registered)})
     config["nav"] = new_nav
-    logger.debug("User Guide nav injected with %d virtual pages", len(_virtual_pages))
+    logger.debug("User Guide nav injected with %d virtual pages", len(registered))
     return config
-
-
-def on_files(files, config):
-    r"""Add virtual File entries for generated example pages."""
-    docs_dir = config["docs_dir"]
-    site_dir = config["site_dir"]
-    use_directory_urls = config.get("use_directory_urls", True)
-
-    existing = {f.src_path for f in files}
-    for src_path in _virtual_pages:
-        if src_path not in existing:
-            files.append(File(src_path, docs_dir, site_dir, use_directory_urls))
-            logger.debug("Virtual example page: %s", src_path)
-
-    return files
-
-
-def on_page_read_source(page, config):
-    r"""Serve generated content for virtual example pages instead of reading from disk."""
-    if page.file.src_path in _virtual_pages:
-        return _virtual_pages[page.file.src_path]
-    return None
