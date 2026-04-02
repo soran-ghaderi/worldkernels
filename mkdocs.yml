@@ -70,6 +70,7 @@ theme:
       quote: fontawesome/solid/quote-left
 
 hooks:
+  - docs/hooks/_virtual_registry.py
   - docs/hooks/socialmedia.py
   - docs/hooks/generate_examples.py
   - docs/hooks/generate_cli_reference.py

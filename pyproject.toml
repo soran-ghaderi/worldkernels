@@ -41,6 +41,7 @@ dependencies = [
     "torch>=2.0",
     "numpy",
     "pydantic>=2.0",
+    "tyro>=0.8",
 ]
 
 [project.optional-dependencies]
@@ -67,11 +68,18 @@ diffusers = [
     "safetensors>=0.4.0",
     "huggingface_hub>=0.20",
 ]
+dreamdojo = [
+    "einops>=0.7",
+    "transformers>=4.40",
+    "safetensors>=0.4",
+    "huggingface_hub>=0.20",
+    "torchvision>=0.15",
+]
 metrics = [
     "prometheus_client>=0.17",
 ]
 all = [
-    "worldkernels[dev,serve,diffusers,metrics]",
+    "worldkernels[dev,serve,diffusers,dreamdojo,metrics]",
 ]
 docs = [
     "mkdocs-material>=9.0.0",
@@ -95,6 +103,7 @@ worldkernels = "worldkernels.cli.main:app"
 
 [project.entry-points."worldkernels.worlds"]
 dummy = "worldkernels.worlds.adapters.dummy:DummyWorld"
+dreamdojo = "worldkernels.worlds.adapters.dreamdojo:DreamDojoWorld"
 
 [project.urls]
 Homepage = "https://github.com/soran-ghaderi/worldkernels"
