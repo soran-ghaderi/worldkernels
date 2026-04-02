@@ -1,13 +1,4 @@
-r"""Auto-generate CLI reference docs from worldkernels.cli source files.
-
-Scans ``worldkernels/cli/*.py`` using AST to extract commands, options,
-subcommands, and help text. Generates markdown pages in ``docs/cli/``
-and injects nav entries under "CLI Reference".
-
-Visual options are read from ``extra.cli_reference`` in ``mkdocs.yml``,
-mirroring mkdocstrings naming conventions (``show_source``,
-``show_symbol_type_heading``, etc.).
-"""
+r"""Auto-generate CLI reference docs from tyro-based dataclass commands (in-memory)."""
 
 import ast
 import logging
@@ -16,13 +7,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import _virtual_registry as registry
+
 logger = logging.getLogger("mkdocs")
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-CLI_PACKAGE_DIR = ROOT_DIR / "worldkernels" / "cli"
-CLI_DOC_DIR = ROOT_DIR / "docs" / "cli"
+CLI_MAIN = ROOT_DIR / "worldkernels" / "cli" / "main.py"
 
-HELP_ALIASES = {"help"}
 _MDASH = "\u2014"
 _TOC_SYMBOLS: dict[str, str] = {}
 
@@ -44,7 +35,7 @@ _OPT_DEFAULTS: dict[str, Any] = {
 
 @dataclass
 class CLIOptions:
-    r"""Visual options for CLI reference generation, read from ``extra.cli_reference``."""
+    r"""Visual options for CLI reference generation."""
 
     heading_level: int = 1
     show_source: bool = True
@@ -70,31 +61,16 @@ class CLIOptions:
         return "#" * (self.heading_level + level_offset)
 
     def heading_symbol(self, kind: str) -> str:
-        r"""Return ``<code class="doc-symbol ...">`` HTML badge for headings."""
         if self.show_symbol_type_heading:
             return f'<code class="doc-symbol doc-symbol-heading doc-symbol-{kind}"></code> '
         return ""
 
 
 def _slugify(text: str) -> str:
-    r"""Simple slugify matching Python-Markdown's toc default."""
     slug = text.lower().strip()
     slug = re.sub(r"[^\w\s-]", "", slug)
     slug = re.sub(r"[-\s]+", "-", slug)
     return slug.strip("-")
-
-
-def _write_if_changed(path: Path, content: str) -> bool:
-    r"""Write file only if content differs from existing."""
-    if path.exists():
-        try:
-            if path.read_text(encoding="utf-8") == content:
-                return False
-        except Exception:
-            pass
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -103,163 +79,225 @@ def _write_if_changed(path: Path, content: str) -> bool:
 
 
 @dataclass
-class CLIOption:
-    flags: list[str]
-    metavar: str | None = None
-    description: str = ""
+class CLIField:
+    name: str
+    type_str: str = "str"
     default: str | None = None
+    description: str = ""
+    aliases: list[str] = field(default_factory=list)
 
 
 @dataclass
 class CLICommand:
     name: str
+    class_name: str = ""
     description: str = ""
-    usage: str = ""
-    options: list[CLIOption] = field(default_factory=list)
-    subcommands: list["CLICommand"] = field(default_factory=list)
-    examples: list[str] = field(default_factory=list)
+    fields: list[CLIField] = field(default_factory=list)
     source_file: Path | None = None
 
 
 # ---------------------------------------------------------------------------
-# Parsers
+# AST extraction from tyro dataclasses
 # ---------------------------------------------------------------------------
 
 
-class HelpTextParser:
-    r"""Parse structured CLI help text to extract commands and options."""
-
-    USAGE_LINE = re.compile(r"^\s{4}worldkernels\s+(?P<rest>.+)$")
-    OPTION_RE = re.compile(r"\[--(?P<name>[\w-]+)(?:\s+(?P<meta>[A-Z_]+))?\]")
-
-    def parse(self, help_text: str) -> tuple[str, list[CLICommand], list[str]]:
-        r"""Return ``(description, commands, examples)`` from help text."""
-        lines = help_text.strip().splitlines()
-        description = ""
-        commands: list[CLICommand] = []
-        examples: list[str] = []
-        section: str | None = None
-
-        for line in lines:
-            stripped = line.strip()
-
-            if stripped.lower().startswith("usage"):
-                section = "usage"
-                continue
-            elif stripped.lower().startswith("example"):
-                section = "examples"
-                continue
-            elif not line.startswith(" ") and stripped and section is None:
-                description = re.sub(r"^worldkernels\s*[-\u2013\u2014]\s*", "", stripped)
-                continue
-
-            if section == "usage":
-                m = self.USAGE_LINE.match(line)
-                if m:
-                    rest = m.group("rest").strip()
-                    parts = re.split(r"\s{2,}", rest, maxsplit=1)
-                    cmd_opts = parts[0]
-                    desc = parts[1].strip() if len(parts) > 1 else ""
-
-                    options = [
-                        CLIOption(
-                            flags=[f"--{om.group('name')}"],
-                            metavar=om.group("meta"),
-                        )
-                        for om in self.OPTION_RE.finditer(cmd_opts)
-                    ]
-
-                    cmd_token = cmd_opts.split()[0] if cmd_opts.split() else ""
-                    if cmd_token.startswith("-"):
-                        continue
-
-                    commands.append(
-                        CLICommand(
-                            name=cmd_token,
-                            description=desc,
-                            usage=f"worldkernels {cmd_opts}",
-                            options=options,
-                        )
-                    )
-                elif not stripped:
-                    section = None
-
-            elif section == "examples":
-                if stripped.startswith("worldkernels"):
-                    examples.append(stripped)
-                elif not stripped:
-                    section = None
-
-        return description, commands, examples
+def _ast_to_str(node: ast.AST) -> str:
+    """Best-effort conversion of an AST node to a readable string."""
+    if isinstance(node, ast.Constant):
+        return repr(node.value)
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return f"{_ast_to_str(node.value)}.{node.attr}"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return f"{_ast_to_str(node.left)} | {_ast_to_str(node.right)}"
+    if isinstance(node, ast.Subscript):
+        return f"{_ast_to_str(node.value)}[{_ast_to_str(node.slice)}]"
+    if isinstance(node, ast.Tuple):
+        return ", ".join(_ast_to_str(e) for e in node.elts)
+    return ast.dump(node)
 
 
-class CLIASTExtractor(ast.NodeVisitor):
-    r"""Extract CLI command names and help strings from Python source via AST."""
+def _extract_subcommand_name(annotation_node: ast.AST) -> str | None:
+    """Extract the name from ``Annotated[SomeClass, tyro.conf.subcommand("name")]``."""
+    if not isinstance(annotation_node, ast.Subscript):
+        return None
+    if not isinstance(annotation_node.value, ast.Name):
+        return None
+    if annotation_node.value.id != "Annotated":
+        return None
+    if not isinstance(annotation_node.slice, ast.Tuple):
+        return None
+    for elt in annotation_node.slice.elts[1:]:
+        if isinstance(elt, ast.Call):
+            func_str = _ast_to_str(elt.func)
+            if "subcommand" in func_str and elt.args:
+                if isinstance(elt.args[0], ast.Constant):
+                    return str(elt.args[0].value)
+    return None
 
-    def __init__(self):
-        self.help_texts: list[str] = []
-        self.command_names: list[str] = []
-        self.module_docstring: str = ""
+
+def _extract_alias(annotation_node: ast.AST) -> list[str]:
+    """Extract aliases from ``Annotated[..., tyro.conf.arg(aliases=("-k",))]``."""
+    if not isinstance(annotation_node, ast.Subscript):
+        return []
+    if not isinstance(annotation_node.slice, ast.Tuple):
+        return []
+    aliases: list[str] = []
+    for elt in annotation_node.slice.elts[1:]:
+        if isinstance(elt, ast.Call):
+            for kw in elt.keywords:
+                if kw.arg == "aliases" and isinstance(kw.value, ast.Tuple):
+                    for a in kw.value.elts:
+                        if isinstance(a, ast.Constant):
+                            aliases.append(str(a.value))
+    return aliases
+
+
+def _get_field_type(annotation: ast.AST | None) -> str:
+    if annotation is None:
+        return "str"
+    if isinstance(annotation, ast.Subscript) and isinstance(annotation.value, ast.Name):
+        if annotation.value.id == "Annotated" and isinstance(annotation.slice, ast.Tuple):
+            return _ast_to_str(annotation.slice.elts[0])
+    return _ast_to_str(annotation)
+
+
+class TyroASTExtractor(ast.NodeVisitor):
+    r"""Extract command dataclasses and the Command Union from cli/main.py."""
+
+    def __init__(self) -> None:
+        self.dataclasses: dict[str, CLICommand] = {}
+        self.subcommand_map: dict[str, str] = {}
+        self._source: str = ""
 
     def extract(self, source_path: Path) -> None:
-        source = source_path.read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=str(source_path))
-        self.module_docstring = ast.get_docstring(tree) or ""
+        self._source = source_path.read_text(encoding="utf-8")
+        tree = ast.parse(self._source, filename=str(source_path))
         self.visit(tree)
 
-    def visit_Call(self, node: ast.Call) -> None:
-        if isinstance(node.func, ast.Name) and node.func.id == "print" and node.args:
-            for arg in node.args:
-                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                    if "usage" in arg.value.lower():
-                        self.help_texts.append(arg.value)
-        self.generic_visit(node)
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        is_dataclass = any(
+            (isinstance(d, ast.Name) and d.id == "dataclass")
+            or (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "dataclass")
+            for d in node.decorator_list
+        )
+        if not is_dataclass:
+            self.generic_visit(node)
+            return
 
-    def visit_Compare(self, node: ast.Compare) -> None:
-        if self._is_args_subscript(node.left):
-            for op, comparator in zip(node.ops, node.comparators):
-                if isinstance(op, (ast.Eq, ast.In)):
-                    self._collect_names(comparator)
-        self.generic_visit(node)
+        docstring = ast.get_docstring(node) or ""
+        fields: list[CLIField] = []
 
-    def _is_args_subscript(self, node: ast.AST) -> bool:
-        return (
-            isinstance(node, ast.Subscript)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "args"
-            and isinstance(node.slice, ast.Constant)
-            and node.slice.value == 0
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign):
+                continue
+            if not isinstance(item.target, ast.Name):
+                continue
+
+            fname = item.target.id
+            if fname.startswith("_"):
+                continue
+
+            ftype = _get_field_type(item.annotation)
+            aliases = _extract_alias(item.annotation) if item.annotation else []
+
+            default_val = None
+            if item.value is not None:
+                if isinstance(item.value, ast.Constant):
+                    default_val = repr(item.value.value)
+                elif isinstance(item.value, ast.Call):
+                    default_val = None
+                else:
+                    default_val = _ast_to_str(item.value)
+
+            fields.append(CLIField(
+                name=fname,
+                type_str=ftype,
+                default=default_val,
+                aliases=aliases,
+            ))
+
+        self.dataclasses[node.name] = CLICommand(
+            name=node.name,
+            class_name=node.name,
+            description=docstring.strip(),
+            fields=fields,
+            source_file=None,
         )
 
-    def _collect_names(self, node: ast.AST) -> None:
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if not node.value.startswith("-") and node.value not in HELP_ALIASES:
-                self.command_names.append(node.value)
-        elif isinstance(node, ast.Tuple):
-            for elt in node.elts:
-                self._collect_names(elt)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        """Find Command = ... Union with subcommand annotations."""
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "Command":
+                self._extract_union_subcommands(node.value)
+        self.generic_visit(node)
+
+    def _extract_union_subcommands(self, node: ast.AST) -> None:
+        """Walk nested Subscript nodes to find Annotated[Cls, subcommand("name")]."""
+        if isinstance(node, ast.Subscript):
+            if isinstance(node.slice, ast.Tuple):
+                for elt in node.slice.elts:
+                    name = _extract_subcommand_name(elt)
+                    if name is not None and isinstance(elt, ast.Subscript):
+                        if isinstance(elt.slice, ast.Tuple) and elt.slice.elts:
+                            cls_node = elt.slice.elts[0]
+                            if isinstance(cls_node, ast.Name):
+                                self.subcommand_map[cls_node.id] = name
+                    else:
+                        self._extract_union_subcommands(elt)
+            else:
+                self._extract_union_subcommands(node.slice)
 
 
-class DocstringSubcommandParser:
-    r"""Parse subcommand definitions from module docstrings.
+def _visit_assign_name(node: ast.Assign) -> str | None:
+    for target in node.targets:
+        if isinstance(target, ast.Name):
+            return target.id
+    return None
 
-    Matches lines like ``- worldkernels bench latency : description``.
-    """
 
-    PATTERN = re.compile(
-        r"^\s*-\s*worldkernels\s+(?P<parent>\w+)\s+(?P<name>\w+)\s*:\s*(?P<desc>.+)$",
-        re.MULTILINE,
-    )
+def discover_commands(source_path: Path) -> list[CLICommand]:
+    """Extract CLI commands from tyro-based main.py."""
+    extractor = TyroASTExtractor()
+    extractor.extract(source_path)
 
-    def parse(self, docstring: str) -> list[CLICommand]:
-        return [
-            CLICommand(
-                name=m.group("name"),
-                description=m.group("desc").strip(),
-                usage=f"worldkernels {m.group('parent')} {m.group('name')}",
-            )
-            for m in self.PATTERN.finditer(docstring)
-        ]
+    subcommand_map = extractor.subcommand_map
+
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            name = _visit_assign_name(node)
+            if name == "Command":
+                _walk_for_subcommands(node.value, subcommand_map)
+
+    commands: list[CLICommand] = []
+    for cls_name, cmd in extractor.dataclasses.items():
+        if cls_name in subcommand_map:
+            cmd.name = subcommand_map[cls_name]
+            cmd.source_file = source_path
+            commands.append(cmd)
+
+    commands.sort(key=lambda c: c.name)
+    return commands
+
+
+def _walk_for_subcommands(node: ast.AST, result: dict[str, str]) -> None:
+    """Recursively find Annotated[Cls, tyro.conf.subcommand("name")] in Union."""
+    if isinstance(node, ast.Subscript):
+        name = _extract_subcommand_name(node)
+        if name is not None and isinstance(node.slice, ast.Tuple) and node.slice.elts:
+            cls_node = node.slice.elts[0]
+            if isinstance(cls_node, ast.Name):
+                result[cls_node.id] = name
+        if isinstance(node.slice, ast.Tuple):
+            for elt in node.slice.elts:
+                _walk_for_subcommands(elt, result)
+        else:
+            _walk_for_subcommands(node.slice, result)
 
 
 # ---------------------------------------------------------------------------
@@ -268,72 +306,27 @@ class DocstringSubcommandParser:
 
 
 class CLIReferenceGenerator:
-    r"""Discover and document the worldkernels CLI from source files."""
+    r"""Discover and document the worldkernels CLI from tyro dataclasses."""
 
-    def __init__(self, opts: CLIOptions):
+    def __init__(self, opts: CLIOptions) -> None:
         self.opts = opts
-        self.help_parser = HelpTextParser()
-        self.sub_parser = DocstringSubcommandParser()
-        self.root_description = ""
-        self.commands: dict[str, CLICommand] = {}
+        self.commands: list[CLICommand] = []
+        self.grouped: dict[str, list[CLICommand]] = {}
 
     def discover(self) -> None:
-        if not CLI_PACKAGE_DIR.exists():
-            logger.warning("CLI package not found: %s", CLI_PACKAGE_DIR)
+        if not CLI_MAIN.exists():
+            logger.warning("CLI main module not found: %s", CLI_MAIN)
             return
+        self.commands = discover_commands(CLI_MAIN)
+        for cmd in self.commands:
+            prefix = cmd.name.split(":")[0] if ":" in cmd.name else cmd.name
+            self.grouped.setdefault(prefix, []).append(cmd)
 
-        for py_file in sorted(CLI_PACKAGE_DIR.glob("*.py")):
-            if py_file.name.startswith("_"):
-                continue
-            self._process_file(py_file)
-
-    def _process_file(self, path: Path) -> None:
-        extractor = CLIASTExtractor()
-        extractor.extract(path)
-
-        for help_text in extractor.help_texts:
-            desc, commands, examples = self.help_parser.parse(help_text)
-            if desc and not self.root_description:
-                self.root_description = desc
-            for cmd in commands:
-                cmd.source_file = path
-                cmd.examples = examples
-                self._merge_command(cmd)
-
-        if extractor.module_docstring:
-            subcommands = self.sub_parser.parse(extractor.module_docstring)
-            if subcommands:
-                parent_name = path.stem
-                parent = self.commands.get(parent_name)
-                if parent is None:
-                    first_line = extractor.module_docstring.strip().splitlines()[0]
-                    parent = CLICommand(
-                        name=parent_name,
-                        description=first_line.strip().rstrip("."),
-                        usage=f"worldkernels {parent_name}",
-                        source_file=path,
-                    )
-                    self.commands[parent_name] = parent
-                parent.subcommands = subcommands
-
-    def _merge_command(self, cmd: CLICommand) -> None:
-        if cmd.name in self.commands:
-            existing = self.commands[cmd.name]
-            if not existing.description:
-                existing.description = cmd.description
-            if not existing.usage:
-                existing.usage = cmd.usage
-            existing.options.extend(cmd.options)
-            existing.examples.extend(cmd.examples)
-        else:
-            self.commands[cmd.name] = cmd
-
-    def _sorted_commands(self) -> list[str]:
-        if self.opts.members_order == "source":
-            return list(self.commands.keys())
-        return sorted(self.commands.keys())
-
-    # -- Markdown generation ------------------------------------------------
+    def _all_top_level_names(self) -> list[str]:
+        names = list(self.grouped.keys())
+        if self.opts.members_order == "alphabetical":
+            names.sort()
+        return names
 
     def _generate_index(self) -> str:
         o = self.opts
@@ -348,57 +341,116 @@ class CLIReferenceGenerator:
         ]
 
         if o.show_description:
-            lines.extend(
-                [
-                    self.root_description or "Command-line interface for WorldKernels.",
-                    "",
-                ]
-            )
+            lines.extend(["Command-line interface for WorldKernels.", ""])
 
         if o.show_usage:
-            lines.extend(
-                [
-                    f"{h(1)} Usage",
-                    "",
-                    "```bash",
-                    "worldkernels <command> [options]",
-                    "```",
-                    "",
-                ]
-            )
-
-        lines.extend(
-            [
-                f"{h(1)} Commands",
+            lines.extend([
+                f"{h(1)} Usage",
                 "",
-                "| Command | Description |",
-                "|---------|-------------|",
-            ]
-        )
-        for name in self._sorted_commands():
-            cmd = self.commands[name]
-            desc = cmd.description or _MDASH
-            lines.append(f"| [`{name}`]({name}.md) | {desc} |")
+                "```bash",
+                "worldkernels <command> [options]",
+                "```",
+                "",
+            ])
+
+        lines.extend([
+            f"{h(1)} Commands",
+            "",
+            "| Command | Description |",
+            "|---------|-------------|",
+        ])
+
+        for name in self._all_top_level_names():
+            cmds = self.grouped[name]
+            if len(cmds) == 1 and ":" not in cmds[0].name:
+                desc = cmds[0].description.splitlines()[0] if cmds[0].description else _MDASH
+                lines.append(f"| [`{name}`]({name}.md) | {desc} |")
+            else:
+                descs = []
+                for c in cmds:
+                    sub = c.name.split(":")[-1] if ":" in c.name else c.name
+                    first_line = c.description.splitlines()[0] if c.description else ""
+                    descs.append(f"`{sub}`: {first_line}")
+                combined = "; ".join(descs)
+                lines.append(f"| [`{name}`]({name}.md) | {combined} |")
+
         lines.append("")
 
         if o.show_global_options:
-            lines.extend(
-                [
-                    f"{h(1)} Global Options",
-                    "",
-                    "| Flag | Description |",
-                    "|------|-------------|",
-                    "| `--help`, `-h` | Show help message and exit |",
-                    "| `--version`, `-V` | Show version and exit |",
-                    "",
-                ]
-            )
+            lines.extend([
+                f"{h(1)} Global Options",
+                "",
+                "| Flag | Description |",
+                "|------|-------------|",
+                "| `--help`, `-h` | Show help message and exit |",
+                "",
+            ])
 
         return "\n".join(lines)
 
-    def _generate_command_page(self, cmd: CLICommand) -> str:
+    def _generate_command_page(self, group_name: str, cmds: list[CLICommand]) -> str:
         o = self.opts
         h = o.heading
+
+        if len(cmds) == 1 and ":" not in cmds[0].name:
+            return self._generate_single_command(cmds[0])
+
+        heading_text = f"worldkernels {group_name}"
+        symbol = o.heading_symbol("command")
+        lines = [f"{h()} {symbol}{heading_text}", ""]
+
+        if o.show_symbol_type_toc:
+            _TOC_SYMBOLS[_slugify(heading_text)] = "command"
+
+        if o.show_subcommands:
+            lines.extend([
+                f"{h(1)} Subcommands",
+                "",
+                "| Subcommand | Description |",
+                "|------------|-------------|",
+            ])
+            for cmd in cmds:
+                sub = cmd.name.split(":")[-1] if ":" in cmd.name else cmd.name
+                first_line = cmd.description.splitlines()[0] if cmd.description else _MDASH
+                lines.append(f"| `{sub}` | {first_line} |")
+            lines.append("")
+
+        for cmd in cmds:
+            sub = cmd.name.split(":")[-1] if ":" in cmd.name else cmd.name
+            sub_text = f"worldkernels {group_name} {sub}"
+            sub_symbol = o.heading_symbol("subcommand")
+            lines.extend([f"{h(1)} {sub_symbol}{sub_text}", ""])
+
+            if o.show_symbol_type_toc:
+                _TOC_SYMBOLS[_slugify(sub_text)] = "subcommand"
+
+            if o.show_description and cmd.description:
+                lines.extend([cmd.description, ""])
+
+            if o.show_usage:
+                usage = f"worldkernels {cmd.name.replace(':', ' ')}"
+                opt_parts = []
+                for f in cmd.fields:
+                    flag = f"--{f.name.replace('_', '-')}"
+                    opt_parts.append(f"[{flag} {f.type_str.upper()}]")
+                if opt_parts:
+                    usage += " " + " ".join(opt_parts)
+                lines.extend(["```bash", usage, "```", ""])
+
+            if o.show_options_table and cmd.fields:
+                self._append_options_table(lines, cmd, h, level=2)
+
+        if cmds and cmds[0].source_file and o.show_source:
+            rel = cmds[0].source_file.relative_to(ROOT_DIR).as_posix()
+            gh = f"https://github.com/soran-ghaderi/worldkernels/blob/main/{rel}"
+            lines.extend([f"{h(1)} Source", "", f"Defined in [`{rel}`]({gh}).", ""])
+
+        return "\n".join(lines)
+
+    def _generate_single_command(self, cmd: CLICommand) -> str:
+        o = self.opts
+        h = o.heading
+
         heading_text = f"worldkernels {cmd.name}"
         symbol = o.heading_symbol("command")
         lines = [f"{h()} {symbol}{heading_text}", ""]
@@ -410,118 +462,79 @@ class CLIReferenceGenerator:
             lines.extend([cmd.description, ""])
 
         if o.show_usage:
-            lines.extend(
-                [
-                    f"{h(1)} Usage",
-                    "",
-                    "```bash",
-                    cmd.usage or f"worldkernels {cmd.name}",
-                    "```",
-                    "",
-                ]
-            )
+            usage = f"worldkernels {cmd.name}"
+            opt_parts = []
+            for f in cmd.fields:
+                flag = f"--{f.name.replace('_', '-')}"
+                opt_parts.append(f"[{flag} {f.type_str.upper()}]")
+            if opt_parts:
+                usage += " " + " ".join(opt_parts)
+            lines.extend([f"{h(1)} Usage", "", "```bash", usage, "```", ""])
 
-        if o.show_options_table and cmd.options:
-            lines.extend(
-                [
-                    f"{h(1)} Options",
-                    "",
-                    "| Flag | Metavar | Description |",
-                    "|------|---------|-------------|",
-                ]
-            )
-            for opt in cmd.options:
-                flags = ", ".join(f"`{f}`" for f in opt.flags)
-                meta = f"`{opt.metavar}`" if opt.metavar else _MDASH
-                desc = opt.description or _MDASH
-                lines.append(f"| {flags} | {meta} | {desc} |")
-            lines.append("")
+        if o.show_options_table and cmd.fields:
+            self._append_options_table(lines, cmd, h, level=1)
 
-        if o.show_subcommands and cmd.subcommands:
-            lines.extend(
-                [
-                    f"{h(1)} Subcommands",
-                    "",
-                    "| Subcommand | Description |",
-                    "|------------|-------------|",
-                ]
-            )
-            for sub in cmd.subcommands:
-                lines.append(f"| `{sub.name}` | {sub.description} |")
-            lines.append("")
-
-            for sub in cmd.subcommands:
-                sub_text = f"worldkernels {cmd.name} {sub.name}"
-                sub_symbol = o.heading_symbol("subcommand")
-                lines.extend(
-                    [
-                        f"{h(2)} {sub_symbol}{sub_text}",
-                        "",
-                    ]
-                )
-                if o.show_symbol_type_toc:
-                    _TOC_SYMBOLS[_slugify(sub_text)] = "subcommand"
-                if o.show_description:
-                    lines.extend([sub.description, ""])
-                if o.show_usage:
-                    lines.extend(
-                        [
-                            "```bash",
-                            sub.usage,
-                            "```",
-                            "",
-                        ]
-                    )
-
-        if o.show_examples and cmd.examples:
-            lines.extend([f"{h(1)} Examples", "", "```bash"])
-            lines.extend(cmd.examples)
-            lines.extend(["```", ""])
-
-        if o.show_source and cmd.source_file:
+        if cmd.source_file and o.show_source:
             rel = cmd.source_file.relative_to(ROOT_DIR).as_posix()
             gh = f"https://github.com/soran-ghaderi/worldkernels/blob/main/{rel}"
             lines.extend([f"{h(1)} Source", "", f"Defined in [`{rel}`]({gh}).", ""])
 
         return "\n".join(lines)
 
-    # -- File I/O -----------------------------------------------------------
+    def _append_options_table(
+        self, lines: list[str], cmd: CLICommand, h: Any, level: int
+    ) -> None:
+        o = self.opts
+        lines.extend([
+            f"{h(level)} Options",
+            "",
+            "| Flag | Type | Default | Description |",
+            "|------|------|---------|-------------|",
+        ])
+        for fld in cmd.fields:
+            flag = f"`--{fld.name.replace('_', '-')}`"
+            if fld.aliases:
+                alias_str = ", ".join(f"`{a}`" for a in fld.aliases)
+                flag = f"{flag}, {alias_str}"
+            type_str = f"`{fld.type_str}`"
+            default = f"`{fld.default}`" if fld.default is not None else _MDASH
+            desc = fld.description or _MDASH
 
-    def write(self) -> list[Path]:
-        CLI_DOC_DIR.mkdir(parents=True, exist_ok=True)
-        written: list[Path] = []
+            if o.show_symbol_type_toc:
+                opt_slug = _slugify(f"--{fld.name.replace('_', '-')}")
+                _TOC_SYMBOLS[opt_slug] = "option"
 
-        index_path = CLI_DOC_DIR / "index.md"
-        _write_if_changed(index_path, self._generate_index())
-        written.append(index_path)
+            lines.append(f"| {flag} | {type_str} | {default} | {desc} |")
+        lines.append("")
 
-        for name in self._sorted_commands():
-            cmd = self.commands[name]
-            page_path = CLI_DOC_DIR / f"{name}.md"
-            _write_if_changed(page_path, self._generate_command_page(cmd))
-            written.append(page_path)
+    def populate_virtual_pages(self) -> int:
+        r"""Register generated pages in the shared virtual registry."""
+        registry.register("cli/index.md", self._generate_index())
+        count = 1
 
-        for md in CLI_DOC_DIR.glob("*.md"):
-            if md not in set(written):
-                logger.info("Removing stale CLI doc: %s", md.relative_to(ROOT_DIR))
-                md.unlink()
+        for group_name in self._all_top_level_names():
+            cmds = self.grouped[group_name]
+            registry.register(
+                f"cli/{group_name}.md",
+                self._generate_command_page(group_name, cmds),
+            )
+            count += 1
 
-        return written
+        return count
 
     def build_nav(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = [{"Overview": "cli/index.md"}]
-        for name in self._sorted_commands():
+        for name in self._all_top_level_names():
             items.append({name.capitalize(): f"cli/{name}.md"})
         return items
 
 
 # ---------------------------------------------------------------------------
-# MkDocs hook
+# MkDocs hooks
 # ---------------------------------------------------------------------------
 
 
 def on_post_page(output: str, page, config) -> str | None:
-    r"""Inject doc-symbol badges into TOC entries for CLI pages."""
     if not _TOC_SYMBOLS:
         return None
     modified = output
@@ -537,12 +550,15 @@ def on_post_page(output: str, page, config) -> str | None:
 
 
 def on_config(config: dict) -> dict:
+    r"""Discover CLI commands and populate virtual pages. No files written to disk."""
     _TOC_SYMBOLS.clear()
+    registry.clear_prefix("cli/")
+
     opts = CLIOptions.from_config(config)
     generator = CLIReferenceGenerator(opts)
     generator.discover()
-    written = generator.write()
-    logger.info("CLI reference: %d pages generated", len(written))
+    count = generator.populate_virtual_pages()
+    logger.info("CLI reference: %d virtual pages generated", count)
 
     nav = config.get("nav") or []
     new_nav: list[Any] = []
