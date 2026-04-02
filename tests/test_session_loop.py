@@ -18,7 +18,7 @@ from worldkernels.core.session import SessionStatus
 def engine():
     """Create a CPU-only WorldKernel with DummyWorld loaded."""
     wk = WorldKernel(device="cpu", max_sessions=4)
-    wk.load_world("dummy")
+    wk.load_model("dummy")
     yield wk
     wk.shutdown()
 
@@ -31,13 +31,13 @@ def session(engine):
 
 
 class TestWorldKernel:
-    def test_load_world(self, engine):
+    def test_load_model(self, engine):
         assert "dummy" in engine.list_worlds()
 
-    def test_load_unknown_world_raises(self):
+    def test_load_unknown_model_raises(self):
         wk = WorldKernel(device="cpu")
         with pytest.raises(WorldNotFoundError):
-            wk.load_world("nonexistent_model_xyz")
+            wk.load_model("nonexistent_model_xyz")
         wk.shutdown()
 
     def test_create_session(self, engine):
@@ -53,7 +53,7 @@ class TestWorldKernel:
 
     def test_max_sessions(self):
         wk = WorldKernel(device="cpu", max_sessions=2)
-        wk.load_world("dummy")
+        wk.load_model("dummy")
         config = WorldConfig(height=32, width=32)
         wk.create_session("dummy", config=config)
         wk.create_session("dummy", config=config)
