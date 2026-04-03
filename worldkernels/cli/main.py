@@ -12,7 +12,6 @@ from typing import Annotated, Union
 
 import tyro
 
-
 # ---------------------------------------------------------------------------
 # serve
 # ---------------------------------------------------------------------------
@@ -27,11 +26,34 @@ class Serve:
     max_sessions: int = 4
     api_key: Annotated[str | None, tyro.conf.arg(aliases=("-k",))] = None
     device: str = "cuda"
+    model: str | None = None
+    ckpt_path: str | None = None
+    experiment: str | None = None
+    num_inference_steps: int | None = None
+    guidance_scale: float | None = None
 
     def run(self) -> None:
         from worldkernels.cli.serve import run_serve
 
-        run_serve(self.host, self.port, self.max_sessions, self.api_key, self.device)
+        model_kwargs: dict = {}
+        if self.ckpt_path is not None:
+            model_kwargs["ckpt_path"] = self.ckpt_path
+        if self.experiment is not None:
+            model_kwargs["experiment"] = self.experiment
+        if self.num_inference_steps is not None:
+            model_kwargs["num_inference_steps"] = self.num_inference_steps
+        if self.guidance_scale is not None:
+            model_kwargs["guidance_scale"] = self.guidance_scale
+
+        run_serve(
+            self.host,
+            self.port,
+            self.max_sessions,
+            self.api_key,
+            self.device,
+            self.model,
+            model_kwargs,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -51,15 +73,46 @@ class Run:
     device: str = "cuda"
     seed: int = 0
     output_dir: str | None = None
+    output_format: str = "frames"
+    fps: int = 24
+    video_codec: str = "libx264"
     modalities: str = "frames"
     decode: bool = True
+    ckpt_path: str | None = None
+    experiment: str | None = None
+    num_inference_steps: int | None = None
+    guidance_scale: float | None = None
+    prompt: str | None = None
 
     def run(self) -> None:
         from worldkernels.cli.run import run_session
 
+        model_kwargs: dict = {}
+        if self.ckpt_path is not None:
+            model_kwargs["ckpt_path"] = self.ckpt_path
+        if self.experiment is not None:
+            model_kwargs["experiment"] = self.experiment
+        if self.num_inference_steps is not None:
+            model_kwargs["num_inference_steps"] = self.num_inference_steps
+        if self.guidance_scale is not None:
+            model_kwargs["guidance_scale"] = self.guidance_scale
+
         run_session(
-            self.world, self.steps, self.action_type, self.height, self.width,
-            self.device, self.seed, self.output_dir, self.modalities, self.decode,
+            self.world,
+            self.steps,
+            self.action_type,
+            self.height,
+            self.width,
+            self.device,
+            self.seed,
+            self.output_dir,
+            self.output_format,
+            self.fps,
+            self.video_codec,
+            self.modalities,
+            self.decode,
+            self.prompt,
+            model_kwargs,
         )
 
 
@@ -286,7 +339,7 @@ def app() -> None:
 
         print(f"worldkernels {__version__}")
         raise SystemExit(0)
-    cmd = tyro.cli(Command, description="worldkernels — GPU-first world model simulation engine")
+    cmd = tyro.cli(Command, description="worldkernels — GPU-first world model simulation engine")  # type: ignore[call-overload]
     cmd.run()
 
 

@@ -55,7 +55,12 @@ def run_throughput(
     world: str, num_sessions: int, steps: int, height: int, width: int, device: str
 ) -> None:
     with bench_env(
-        world, device, max_sessions=num_sessions, height=height, width=width, num_sessions=num_sessions
+        world,
+        device,
+        max_sessions=num_sessions,
+        height=height,
+        width=width,
+        num_sessions=num_sessions,
     ) as (_, sessions):
         t0 = time.perf_counter()
         for _ in range(steps):
@@ -70,12 +75,17 @@ def run_throughput(
         print(f"  throughput:  {total_steps / elapsed:.1f} steps/s")
 
 
-def run_vram(world: str, device: str = "cuda", resolutions: str = "256x256,480x848,720x1280") -> None:
+def run_vram(
+    world: str,
+    device: str = "cuda",
+    resolutions: str = "256x256,480x848,720x1280",
+) -> None:
     r"""Profile VRAM across resolutions."""
+    import torch
+
     from worldkernels.core.config import WorldConfig
     from worldkernels.worlds.registry import get_world_class
 
-    import torch
     cls = get_world_class(world)
     dtype = torch.bfloat16 if device != "cpu" else torch.float32
     instance = cls()
@@ -83,8 +93,8 @@ def run_vram(world: str, device: str = "cuda", resolutions: str = "256x256,480x8
 
     pairs = []
     for res in resolutions.split(","):
-        h, w = res.strip().split("x")
-        pairs.append((int(h), int(w)))
+        parts = res.strip().split("x")
+        pairs.append((int(parts[0]), int(parts[1])))
 
     print(f"world={world}  device={device}")
     print(f"{'Resolution':>14s}  {'VRAM (MB)':>10s}")
@@ -121,8 +131,9 @@ def run_profile(
     output: str = "wk_profile",
 ) -> None:
     r"""Run steps under torch.profiler and emit a Chrome/Nsight trace."""
-    import torch
     from pathlib import Path
+
+    import torch
 
     with bench_env(world, device, height=height, width=width) as (_, sessions):
         session = sessions[0]
@@ -145,7 +156,7 @@ def run_profile(
     trace_path = Path(f"{output}.json")
     prof.export_chrome_trace(str(trace_path))
     print(f"Trace written to {trace_path}")
-    print(f"Open in chrome://tracing or Perfetto UI")
+    print("Open in chrome://tracing or Perfetto UI")
 
     print()
     print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))

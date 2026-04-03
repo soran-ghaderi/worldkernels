@@ -14,7 +14,7 @@ def main() -> None:
     wk = WorldKernel(device="cpu")
 
     # 2. Load the built-in dummy world
-    wk.load_world("dummy")
+    wk.load_model("dummy")
     print(f"Loaded worlds: {wk.list_worlds()}")
 
     # 3. Create a session with small resolution for fast iteration

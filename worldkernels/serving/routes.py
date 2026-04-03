@@ -13,7 +13,6 @@ from worldkernels.core.config import WorldConfig
 from worldkernels.core.engine import WorldKernel
 from worldkernels.core.errors import (
     SessionLimitError,
-    SessionNotFoundError,
     SessionTerminatedError,
     VRAMExhaustedError,
     WorldAlreadyLoadedError,
