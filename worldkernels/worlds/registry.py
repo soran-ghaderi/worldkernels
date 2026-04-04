@@ -45,6 +45,20 @@ def _register_builtins() -> None:
 
     register_world("dummy", DummyWorld)
 
+    try:
+        from worldkernels.worlds.adapters.dreamdojo import DreamDojoWorld
+
+        register_world("dreamdojo", DreamDojoWorld)
+    except ImportError:
+        log.debug("DreamDojo adapter not available (cosmos_predict2 not installed)")
+
+    try:
+        from worldkernels.worlds.adapters.cosmos import CosmosPredict2World
+
+        register_world("cosmos_predict2", CosmosPredict2World)
+    except ImportError:
+        log.debug("Cosmos-Predict2 adapter not available")
+
 
 # ---- entry_points discovery (lazy, once) --------------------------------
 

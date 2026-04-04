@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 
@@ -75,13 +75,22 @@ class WorldKernel:
 
     # ---- world loading ---------------------------------------------------
 
-    def load_world(
+    def load_model(
         self,
         model_id: str,
         alias: str | None = None,
         trust_remote_code: bool = False,
+        **kwargs: Any,
     ) -> None:
-        r"""Load a world model by registry name or HF Hub ID."""
+        r"""Load a world model by registry name or HF Hub ID.
+
+        Args:
+            model_id: Registry name (e.g. "dreamdojo") or HF Hub ID.
+            alias: Optional short name for the loaded model.
+            trust_remote_code: Allow custom code from HF Hub.
+            **kwargs: Forwarded to the adapter constructor (e.g.
+                ``experiment``, ``ckpt_path`` for DreamDojo).
+        """
         from worldkernels.core.config import WorldConfig as WC
         from worldkernels.worlds.registry import get_world_class
 
@@ -95,7 +104,7 @@ class WorldKernel:
         except KeyError:
             raise WorldNotFoundError(model_id)
 
-        world: AbstractWorld = world_cls()
+        world: AbstractWorld = world_cls(**kwargs)
         try:
             world.initialize(device=self.device, dtype=self.dtype)
         except Exception as exc:
@@ -163,7 +172,7 @@ class WorldKernel:
     def list_worlds(self) -> list[str]:
         return list(self._worlds.keys())
 
-    def unload_world(self, name: str) -> None:
+    def unload_model(self, name: str) -> None:
         r"""Unload a world model and close all its sessions."""
         if name not in self._worlds:
             raise WorldNotFoundError(name)

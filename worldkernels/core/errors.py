@@ -10,7 +10,7 @@ class WorldKernelError(Exception):
 class WorldNotFoundError(WorldKernelError):
     def __init__(self, world_id: str) -> None:
         self.world_id = world_id
-        super().__init__(f"World '{world_id}' not loaded. Call load_world() first.")
+        super().__init__(f"World '{world_id}' not loaded. Call load_model() first.")
 
 
 class SessionLimitError(WorldKernelError):
