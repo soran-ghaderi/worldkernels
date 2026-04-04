@@ -18,4 +18,3 @@ The following metrics are exported on the `/metrics` endpoint.
 | `wk_vram_usage_bytes` | Gauge :material-speedometer: | — |
 | `wk_batch_size` | Histogram :material-chart-bar: | — |
 | `wk_step_latency_seconds` | Histogram :material-chart-bar: | — |
-

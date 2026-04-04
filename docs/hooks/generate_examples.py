@@ -30,6 +30,7 @@ LANGUAGE_ALIASES = {
     "sh": "bash",
 }
 
+
 def _title(text: str) -> str:
     text = text.replace("_", " ").replace("/", " - ").title()
     subs = {
@@ -70,7 +71,9 @@ def _fix_relative_links(content: str, src_file: Path) -> str:
             return match.group(0)
 
         slug = "tree/main" if resolved.is_dir() else "blob/main"
-        return f"[{link_text}](https://github.com/soran-ghaderi/worldkernels/{slug}/{rel.as_posix()})"
+        return (
+            f"[{link_text}](https://github.com/soran-ghaderi/worldkernels/{slug}/{rel.as_posix()})"
+        )
 
     return re.sub(link_pattern, replace_link, content)
 
@@ -104,9 +107,7 @@ class Example:
         return sorted(
             f
             for f in self.path.rglob("*")
-            if f.is_file()
-            and f != self.main_file
-            and any(f.match(p) for p in SUPPORTED_PATTERNS)
+            if f.is_file() and f != self.main_file and any(f.match(p) for p in SUPPORTED_PATTERNS)
         )
 
     @cached_property

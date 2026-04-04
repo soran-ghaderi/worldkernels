@@ -179,7 +179,11 @@ class TyroASTExtractor(ast.NodeVisitor):
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         is_dataclass = any(
             (isinstance(d, ast.Name) and d.id == "dataclass")
-            or (isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "dataclass")
+            or (
+                isinstance(d, ast.Call)
+                and isinstance(d.func, ast.Name)
+                and d.func.id == "dataclass"
+            )
             for d in node.decorator_list
         )
         if not is_dataclass:
@@ -211,12 +215,14 @@ class TyroASTExtractor(ast.NodeVisitor):
                 else:
                     default_val = _ast_to_str(item.value)
 
-            fields.append(CLIField(
-                name=fname,
-                type_str=ftype,
-                default=default_val,
-                aliases=aliases,
-            ))
+            fields.append(
+                CLIField(
+                    name=fname,
+                    type_str=ftype,
+                    default=default_val,
+                    aliases=aliases,
+                )
+            )
 
         self.dataclasses[node.name] = CLICommand(
             name=node.name,
@@ -344,21 +350,25 @@ class CLIReferenceGenerator:
             lines.extend(["Command-line interface for WorldKernels.", ""])
 
         if o.show_usage:
-            lines.extend([
-                f"{h(1)} Usage",
-                "",
-                "```bash",
-                "worldkernels <command> [options]",
-                "```",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Usage",
+                    "",
+                    "```bash",
+                    "worldkernels <command> [options]",
+                    "```",
+                    "",
+                ]
+            )
 
-        lines.extend([
-            f"{h(1)} Commands",
-            "",
-            "| Command | Description |",
-            "|---------|-------------|",
-        ])
+        lines.extend(
+            [
+                f"{h(1)} Commands",
+                "",
+                "| Command | Description |",
+                "|---------|-------------|",
+            ]
+        )
 
         for name in self._all_top_level_names():
             cmds = self.grouped[name]
@@ -377,14 +387,16 @@ class CLIReferenceGenerator:
         lines.append("")
 
         if o.show_global_options:
-            lines.extend([
-                f"{h(1)} Global Options",
-                "",
-                "| Flag | Description |",
-                "|------|-------------|",
-                "| `--help`, `-h` | Show help message and exit |",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Global Options",
+                    "",
+                    "| Flag | Description |",
+                    "|------|-------------|",
+                    "| `--help`, `-h` | Show help message and exit |",
+                    "",
+                ]
+            )
 
         return "\n".join(lines)
 
@@ -403,12 +415,14 @@ class CLIReferenceGenerator:
             _TOC_SYMBOLS[_slugify(heading_text)] = "command"
 
         if o.show_subcommands:
-            lines.extend([
-                f"{h(1)} Subcommands",
-                "",
-                "| Subcommand | Description |",
-                "|------------|-------------|",
-            ])
+            lines.extend(
+                [
+                    f"{h(1)} Subcommands",
+                    "",
+                    "| Subcommand | Description |",
+                    "|------------|-------------|",
+                ]
+            )
             for cmd in cmds:
                 sub = cmd.name.split(":")[-1] if ":" in cmd.name else cmd.name
                 first_line = cmd.description.splitlines()[0] if cmd.description else _MDASH
@@ -481,16 +495,16 @@ class CLIReferenceGenerator:
 
         return "\n".join(lines)
 
-    def _append_options_table(
-        self, lines: list[str], cmd: CLICommand, h: Any, level: int
-    ) -> None:
+    def _append_options_table(self, lines: list[str], cmd: CLICommand, h: Any, level: int) -> None:
         o = self.opts
-        lines.extend([
-            f"{h(level)} Options",
-            "",
-            "| Flag | Type | Default | Description |",
-            "|------|------|---------|-------------|",
-        ])
+        lines.extend(
+            [
+                f"{h(level)} Options",
+                "",
+                "| Flag | Type | Default | Description |",
+                "|------|------|---------|-------------|",
+            ]
+        )
         for fld in cmd.fields:
             flag = f"`--{fld.name.replace('_', '-')}`"
             if fld.aliases:
