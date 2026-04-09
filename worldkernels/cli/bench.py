@@ -22,8 +22,9 @@ def bench_env(
     r"""Shared setup/teardown for benchmark commands."""
     wk = WorldKernel(device=device, max_sessions=max_sessions)
     wk.load_model(world)
+    world_key = world.split("/")[-1]
     config = WorldConfig(height=height, width=width, frames_per_step=1)
-    sessions = [wk.create_session(world, config=config, seed=i) for i in range(num_sessions)]
+    sessions = [wk.create_session(world_key, config=config, seed=i) for i in range(num_sessions)]
     try:
         yield wk, sessions
     finally:
@@ -84,11 +85,13 @@ def run_vram(
     import torch
 
     from worldkernels.core.config import WorldConfig
+    from worldkernels.worlds.hub import resolve_model
     from worldkernels.worlds.registry import get_world_class
 
-    cls = get_world_class(world)
+    adapter_name, merged_kwargs = resolve_model(world)
+    cls = get_world_class(adapter_name)
     dtype = torch.bfloat16 if device != "cpu" else torch.float32
-    instance = cls()
+    instance = cls(**merged_kwargs)
     instance.initialize(device=device, dtype=dtype)
 
     pairs = []

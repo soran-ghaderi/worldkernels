@@ -42,45 +42,16 @@ dependencies = [
     "numpy",
     "pydantic>=2.0",
     "tyro>=0.8",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "pytest-xdist>=3.5",
-    "mypy>=1.0",
-    "ruff>=0.6",
-    "pre-commit>=3.6",
-    "build>=1.2",
-    "twine>=5.0",
-    "pip-audit>=2.7",
-]
-serve = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
     "websockets>=11.0",
-]
-diffusers = [
-    "diffusers>=0.25.0",
-    "transformers>=4.35.0",
-    "accelerate>=0.25.0",
-    "safetensors>=0.4.0",
     "huggingface_hub>=0.20",
-]
-dreamdojo = [
-    "einops>=0.7",
     "transformers>=4.40",
     "safetensors>=0.4",
-    "huggingface_hub>=0.20",
-    "torchvision>=0.15",
-]
-cosmos = [
     "einops>=0.7",
-    "transformers>=4.40,<5.0",
-    "safetensors>=0.4",
-    "huggingface_hub>=0.20",
     "torchvision>=0.15",
+    "diffusers>=0.30",
+    "accelerate>=0.25.0",
     "flash-attn>=2.7",
     "lightning>=2.0",
     "pytz",
@@ -95,7 +66,6 @@ cosmos = [
     "decord>=0.6",
     "h5py>=3.8",
     "lerobot>=0.5",
-    "diffusers>=0.30",
     "sentencepiece>=0.2",
     "opencv-python>=4.8",
     "imageio>=2.30",
@@ -103,12 +73,20 @@ cosmos = [
     "numpydantic>=1.0",
     "nvidia-ml-py>=12.0",
     "qwen-vl-utils>=0.0.10",
-]
-metrics = [
     "prometheus_client>=0.17",
 ]
-all = [
-    "worldkernels[dev,serve,diffusers,dreamdojo,cosmos,metrics]",
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-xdist>=3.5",
+    "mypy>=1.0",
+    "ruff>=0.6",
+    "pre-commit>=3.6",
+    "build>=1.2",
+    "twine>=5.0",
+    "pip-audit>=2.7",
 ]
 docs = [
     "mkdocs-material>=9.0.0",

@@ -30,11 +30,12 @@ def run_session(
         raise ValueError(f"--output-format must be one of {valid_formats}, got '{output_format}'")
 
     wk = WorldKernel(device=device)
+    world_key = world.split("/")[-1]
     wk.load_model(world, **(model_kwargs or {}))
 
     mods = [m.strip() for m in modalities.split(",")]
     cfg = WorldConfig(height=height, width=width, initial_prompt=prompt or "")
-    session = wk.create_session(world, config=cfg, seed=seed)
+    session = wk.create_session(world_key, config=cfg, seed=seed)
 
     out = Path(output_dir) if output_dir else None
     if out:
