@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from worldkernels.worlds.adapters._cosmos_base import CosmosBaseWorld, download_hf_file
+from worldkernels.worlds.adapters._cosmos_predict2 import CosmosBaseWorld, download_hf_file
 
 if TYPE_CHECKING:
     from worldkernels.core.action import Action
@@ -50,7 +50,7 @@ class CosmosPredict2World(CosmosBaseWorld):
                 "Cosmos-Predict2.5-2B unavailable (%s), falling back to DreamDojo pretrain",
                 e.__class__.__name__,
             )
-            from worldkernels.worlds.adapters._cosmos_base import (
+            from worldkernels.worlds.adapters._cosmos_predict2 import (
                 download_dreamdojo_checkpoint,
             )
 

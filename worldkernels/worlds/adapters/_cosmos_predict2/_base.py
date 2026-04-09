@@ -175,7 +175,7 @@ class CosmosBaseWorld(AbstractWorld):
         self._initialized = False
 
     def initialize(self, device: str, dtype: torch.dtype) -> None:
-        from worldkernels.worlds.adapters._cosmos_deps import ensure_cosmos_predict2
+        from worldkernels.worlds.adapters._cosmos_predict2._deps import ensure_cosmos_predict2
 
         ensure_cosmos_predict2()
 
