@@ -11,22 +11,26 @@ log = logging.getLogger(__name__)
 
 def run_list(verbose: bool = False) -> None:
     from worldkernels.worlds.hub import list_models
-    from worldkernels.worlds.registry import get_world_class, list_worlds
 
     hub_models = list_models()
 
     if not verbose:
-        print("Adapters:")
-        for name in list_worlds():
-            print(f"  {name}")
-        print()
         print("Models (use these with --world / --model):")
         for name, card in sorted(hub_models.items()):
             desc = f"  {card.description}" if card.description else ""
             print(f"  {name:30s}{desc}")
         return
 
-    print("Adapters:")
+    print("Models:")
+    for name, card in sorted(hub_models.items()):
+        defaults = ", ".join(f"{k}={v}" for k, v in card.default_kwargs.items())
+        hf = card.hf_repo or ""
+        print(f"  {name:30s}  adapter={card.adapter:16s}  hf={hf:30s}  defaults={{{defaults}}}")
+
+    print()
+    print("Adapters (requires torch):")
+    from worldkernels.worlds.registry import get_world_class, list_worlds
+
     for name in list_worlds():
         cls = get_world_class(name)
         mode = getattr(cls, "transition_mode", "unknown")
@@ -36,13 +40,6 @@ def run_list(verbose: bool = False) -> None:
             f"  {name:20s}  mode={mode.value if hasattr(mode, 'value') else mode}  "
             f"streaming={streaming}  kv_cache={kv}  class={cls.__qualname__}"
         )
-
-    print()
-    print("Models:")
-    for name, card in sorted(hub_models.items()):
-        defaults = ", ".join(f"{k}={v}" for k, v in card.default_kwargs.items())
-        hf = card.hf_repo or ""
-        print(f"  {name:30s}  adapter={card.adapter:16s}  hf={hf:30s}  defaults={{{defaults}}}")
 
 
 def run_inspect(model_id: str, device: str = "cpu", config_json: str | None = None) -> None:
