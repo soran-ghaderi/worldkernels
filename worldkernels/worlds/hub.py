@@ -90,7 +90,10 @@ def resolve_model(
 
 
 def _register_builtins() -> None:
-    register_model("dummy", ModelCard(adapter="dummy", description="CPU-safe dummy world for testing"))
+    register_model(
+        "dummy",
+        ModelCard(adapter="dummy", description="CPU-safe dummy world for testing"),
+    )
 
     _dreamdojo_variants = {
         "2b_pretrain": "DreamDojo 2B pretrained (general)",

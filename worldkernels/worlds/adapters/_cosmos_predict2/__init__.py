@@ -17,9 +17,15 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "CosmosLatent": ("worldkernels.worlds.adapters._cosmos_predict2._base", "CosmosLatent"),
     "_LATENT_CH": ("worldkernels.worlds.adapters._cosmos_predict2._base", "_LATENT_CH"),
     "_SPATIAL_FACTOR": ("worldkernels.worlds.adapters._cosmos_predict2._base", "_SPATIAL_FACTOR"),
-    "download_dreamdojo_checkpoint": ("worldkernels.worlds.adapters._cosmos_predict2._base", "download_dreamdojo_checkpoint"),
+    "download_dreamdojo_checkpoint": (
+        "worldkernels.worlds.adapters._cosmos_predict2._base",
+        "download_dreamdojo_checkpoint",
+    ),
     "download_hf_file": ("worldkernels.worlds.adapters._cosmos_predict2._base", "download_hf_file"),
-    "ensure_cosmos_predict2": ("worldkernels.worlds.adapters._cosmos_predict2._deps", "ensure_cosmos_predict2"),
+    "ensure_cosmos_predict2": (
+        "worldkernels.worlds.adapters._cosmos_predict2._deps",
+        "ensure_cosmos_predict2",
+    ),
 }
 
 
