@@ -96,9 +96,10 @@ class WorldKernel:
                 ``variant``, ``ckpt_path`` for DreamDojo).
         """
         from worldkernels.core.config import WorldConfig as WC
-        from worldkernels.worlds.hub import resolve_model
+        from worldkernels.worlds.hub import ensure_model_deps, resolve_model
         from worldkernels.worlds.registry import get_world_class
 
+        ensure_model_deps(model_id)
         adapter_name, merged_kwargs = resolve_model(model_id, **kwargs)
 
         key = alias or model_id.split("/")[-1]

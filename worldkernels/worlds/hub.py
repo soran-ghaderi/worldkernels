@@ -2,8 +2,12 @@ r"""Model hub registry mapping HF repo IDs and short aliases to adapters."""
 
 from __future__ import annotations
 
+import importlib as _importlib
+import logging
 from dataclasses import dataclass, field
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -14,6 +18,7 @@ class ModelCard:
     hf_repo: str | None = None
     default_kwargs: dict[str, Any] = field(default_factory=dict)
     description: str = ""
+    pip_extra: str | None = None
 
 
 _HUB: dict[str, ModelCard] = {}
@@ -29,6 +34,40 @@ def get_model_card(name: str) -> ModelCard | None:
 
 def list_models() -> dict[str, ModelCard]:
     return dict(_HUB)
+
+
+_EXTRA_SENTINELS: dict[str, str] = {
+    "cosmos": "transformers",
+}
+
+
+def ensure_model_deps(model_id: str) -> None:
+    r"""Auto-install missing pip extras required by a model adapter."""
+    card = _HUB.get(model_id)
+    if card is None or card.pip_extra is None:
+        return
+    sentinel = _EXTRA_SENTINELS.get(card.pip_extra)
+    if sentinel is None:
+        return
+    try:
+        _importlib.import_module(sentinel)
+        return
+    except ImportError:
+        pass
+    import os
+
+    if os.environ.get("WORLDKERNELS_NO_AUTO_INSTALL"):
+        raise ImportError(
+            f"Missing dependencies for '{model_id}'. "
+            f"Install with: pip install 'worldkernels[{card.pip_extra}]'"
+        )
+    import subprocess
+    import sys
+
+    extra = f"worldkernels[{card.pip_extra}]"
+    log.info("Auto-installing missing dependencies: pip install '%s' ...", extra)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", extra])
+    log.info("Dependencies installed successfully.")
 
 
 def resolve_model(
@@ -71,6 +110,7 @@ def _register_builtins() -> None:
                 hf_repo="nvidia/DreamDojo",
                 default_kwargs={"variant": variant},
                 description=desc,
+                pip_extra="cosmos",
             ),
         )
 
@@ -81,6 +121,7 @@ def _register_builtins() -> None:
             hf_repo="nvidia/DreamDojo",
             default_kwargs={"variant": "2b_pretrain"},
             description="DreamDojo action-conditioned video world model (default: 2B pretrain)",
+            pip_extra="cosmos",
         ),
     )
 
@@ -91,6 +132,7 @@ def _register_builtins() -> None:
             hf_repo="nvidia/DreamDojo",
             default_kwargs={"variant": "2b_pretrain"},
             description="DreamDojo action-conditioned video world model (default: 2B pretrain)",
+            pip_extra="cosmos",
         ),
     )
 
@@ -100,6 +142,7 @@ def _register_builtins() -> None:
             adapter="cosmos_predict2",
             hf_repo="nvidia/Cosmos-Predict2.5-2B",
             description="Cosmos-Predict2.5-2B text-conditioned video-to-world",
+            pip_extra="cosmos",
         ),
     )
 
@@ -109,6 +152,7 @@ def _register_builtins() -> None:
             adapter="cosmos_predict2",
             hf_repo="nvidia/Cosmos-Predict2.5-2B",
             description="Cosmos-Predict2.5-2B text-conditioned video-to-world",
+            pip_extra="cosmos",
         ),
     )
 
@@ -118,6 +162,7 @@ def _register_builtins() -> None:
             adapter="cosmos_predict2",
             hf_repo="nvidia/Cosmos-Predict2.5-2B",
             description="Cosmos-Predict2.5-2B text-conditioned video-to-world",
+            pip_extra="cosmos",
         ),
     )
 

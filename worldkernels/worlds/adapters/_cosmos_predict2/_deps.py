@@ -224,8 +224,7 @@ def ensure_cosmos_predict2() -> None:
         raise ImportError(
             "cosmos_predict2 not found. Fix with ONE of:\n"
             "  1. git clone https://github.com/NVIDIA/DreamDojo.git ~/DreamDojo\n"
-            "  2. export COSMOS_PREDICT2_PATH=/path/to/DreamDojo\n"
-            "  3. pip install cosmos-predict2"
+            "  2. export COSMOS_PREDICT2_PATH=/path/to/DreamDojo"
         )
 
     if repo_root not in sys.path:
