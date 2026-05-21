@@ -1,8 +1,9 @@
-r"""Cosmos-Predict2.5 video-to-world adapter.
+r"""DreamDojo action-conditioned world model adapter.
 
-Text-conditioned video generation via NVIDIA Cosmos-Predict2.5-2B.
-Composes :class:`CosmosPredict2Pipeline` and maps text actions to the
-pipeline's text conditioning.
+Wraps NVIDIA DreamDojo (2B/14B) — an action-conditioned video diffusion model
+built on Cosmos-Predict2.5. Actions are robot joint vectors. Composes
+:class:`CosmosPredict2Pipeline` and injects the action tensor as a per-step
+``extras`` field rather than overriding the pipeline.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from worldkernels.worlds.pipelines.cosmos_predict2 import CosmosPredict2Latent, 
 from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState
 from worldkernels.runtime.stages import StageExecMode, StageType, TransitionMode
+from worldkernels.worlds.adapters.dreamdojo.checkpoint import download_dreamdojo_checkpoint
 from worldkernels.worlds.base import AbstractWorld
 
 if TYPE_CHECKING:
@@ -25,25 +27,38 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-HF_REPO = "nvidia/Cosmos-Predict2.5-2B"
-HF_CKPT_FILE = "base/pre-trained/d20b7120-df3e-4911-919d-db6e08bad31c_ema_bf16.pt"
-CONFIG_FILE = "cosmos_predict2/_src/predict2/configs/video2world/config.py"
-DEFAULT_EXPERIMENT = (
-    "Stage-c_pt_4-reason_embeddings-v1p1-Index-26-Size-2B-Res-720-Fps-16"
-    "-Note-T2V_high_sigma_loss_reweighted_1_1_rectified_flow_only_resume2"
-)
-FALLBACK_EXPERIMENT = "dreamdojo_2b_480_640_pretrain"
-FALLBACK_CONFIG = "cosmos_predict2/_src/predict2/action/configs/action_conditioned/config.py"
+CONFIG_FILE = "cosmos_predict2/_src/predict2/action/configs/action_conditioned/config.py"
+DEFAULT_EXPERIMENT = "dreamdojo_2b_480_640_pretrain"
+
+EXPERIMENTS = {
+    "2b_pretrain": "dreamdojo_2b_480_640_pretrain",
+    "2b_gr1": "dreamdojo_2b_480_640_gr1",
+    "2b_agibot": "dreamdojo_2b_480_640_agibot",
+    "2b_g1": "dreamdojo_2b_480_640_g1",
+    "2b_yam": "dreamdojo_2b_480_640_yam",
+    "14b_pretrain": "dreamdojo_14b_480_640_pretrain",
+    "14b_gr1": "dreamdojo_14b_480_640_gr1",
+}
+
+CKPT_DIRS = {
+    "2b_pretrain": "2B_pretrain",
+    "2b_gr1": "2B_GR1_post-train",
+    "2b_agibot": "2B_AgiBot_post-train",
+    "2b_g1": "2B_G1_post-train",
+    "2b_yam": "2B_YAM_post-train",
+    "14b_pretrain": "14B_pretrain",
+    "14b_gr1": "14B_GR1_post-train",
+}
 
 
-class CosmosPredict2World(AbstractWorld):
-    r"""Cosmos-Predict2.5 video-to-world model (2B).
+class DreamDojoWorld(AbstractWorld):
+    r"""Action-conditioned video world model (DreamDojo 2B/14B).
 
-    Actions are text prompts. Each step generates a video chunk conditioned on
-    the prompt and the previous frame.
+    Actions are robot joint vectors \(\in \mathbb{R}^{T \times D}\) where
+    \(T\) = chunk_size frames and \(D\) = action_dim joints.
     """
 
-    name = "cosmos_predict2"
+    name = "dreamdojo"
     stage_exec_modes = {
         StageType.ENCODE: StageExecMode.SINGLE_SHOT,
         StageType.TRANSITION: StageExecMode.ITERATIVE,
@@ -57,14 +72,20 @@ class CosmosPredict2World(AbstractWorld):
         self,
         ckpt_path: str | None = None,
         experiment: str | None = None,
+        variant: str = "2b_pretrain",
+        action_dim: int = 384,
+        chunk_size: int = 12,
         num_inference_steps: int = 35,
-        guidance_scale: float = 7.0,
+        guidance_scale: float = 3.0,
         **kwargs: Any,
     ) -> None:
         self.ckpt_path = ckpt_path
-        self._experiment_override = experiment
+        self.variant = variant
+        self.action_dim = action_dim
+        self.chunk_size = chunk_size
         self.num_inference_steps = num_inference_steps
         self.guidance_scale = guidance_scale
+        self._experiment_override = experiment
         self.device: str = "cpu"
         self.dtype: torch.dtype = torch.float32
         self.pipeline: CosmosPredict2Pipeline | None = None
@@ -72,58 +93,76 @@ class CosmosPredict2World(AbstractWorld):
     def initialize(self, device: str, dtype: torch.dtype) -> None:
         self.device = device
         self.dtype = dtype
-        ckpt, experiment, config_file = self._resolve_checkpoint_and_config()
-        self.pipeline = CosmosPredict2Pipeline(experiment=experiment, config_file=config_file)
+        experiment = self._experiment_override or EXPERIMENTS.get(self.variant, DEFAULT_EXPERIMENT)
+        self.pipeline = CosmosPredict2Pipeline(experiment=experiment, config_file=CONFIG_FILE)
+        ckpt = self._resolve_checkpoint()
         self.pipeline.load(device, dtype, ckpt)
 
-    def _resolve_checkpoint_and_config(self) -> tuple[str, str, str]:
-        r"""Pick checkpoint path + experiment + config_file with fallback to DreamDojo pretrain."""
-        experiment = self._experiment_override or DEFAULT_EXPERIMENT
+    def _resolve_checkpoint(self) -> str:
         if self.ckpt_path is not None:
-            return self.ckpt_path, experiment, CONFIG_FILE
-        from worldkernels.worlds.pipelines.cosmos_predict2.pipeline import _download_hf_file
-
-        try:
-            log.info("Downloading Cosmos-Predict2.5-2B checkpoint...")
-            ckpt = _download_hf_file(HF_REPO, HF_CKPT_FILE)
-            return ckpt, experiment, CONFIG_FILE
-        except Exception as e:
-            log.info(
-                "Cosmos-Predict2.5-2B unavailable (%s), falling back to DreamDojo pretrain",
-                e.__class__.__name__,
-            )
-            from worldkernels.worlds.adapters.dreamdojo.checkpoint import (
-                download_dreamdojo_checkpoint,
-            )
-
-            return download_dreamdojo_checkpoint(), FALLBACK_EXPERIMENT, FALLBACK_CONFIG
+            return self.ckpt_path
+        ckpt_dir = CKPT_DIRS.get(self.variant, "2B_pretrain")
+        log.info("Downloading DreamDojo %s checkpoint...", self.variant)
+        return download_dreamdojo_checkpoint(ckpt_dir)
 
     def warmup(self, config: WorldConfig) -> None:
         if self.pipeline is None:
             return
+        null_action = torch.zeros(
+            1, self.chunk_size, self.action_dim, device=self.device, dtype=self.dtype
+        )
         self.pipeline.warmup(
-            height=config.height, width=config.width, frames_per_step=config.frames_per_step
+            height=config.height,
+            width=config.width,
+            frames_per_step=config.frames_per_step,
+            extras={"action": null_action},
         )
 
     def encode_action(self, action: Action) -> torch.Tensor:
-        prompt = action.payload.get("prompt", "") if action.payload else ""
-        if not prompt or self.pipeline is None:
-            return torch.empty(0, device=self.device)
-        return self.pipeline.encode_text(prompt)
+        if action.action_type == "null":
+            return torch.zeros(
+                1, self.chunk_size, self.action_dim, device=self.device, dtype=self.dtype
+            )
+
+        joints = action.payload.get("joints", [0.0] * self.action_dim)
+        joints_t = torch.tensor(joints, device=self.device, dtype=self.dtype)
+
+        if joints_t.ndim == 1:
+            joints_t = joints_t.unsqueeze(0).expand(self.chunk_size, -1)
+        elif joints_t.ndim == 2 and joints_t.shape[0] != self.chunk_size:
+            pad_len = self.chunk_size - joints_t.shape[0]
+            if pad_len > 0:
+                joints_t = torch.cat(
+                    [
+                        joints_t,
+                        torch.zeros(pad_len, self.action_dim, device=self.device, dtype=self.dtype),
+                    ],
+                    dim=0,
+                )
+            else:
+                joints_t = joints_t[: self.chunk_size]
+
+        return joints_t.unsqueeze(0)
 
     def transition(self, state: LatentState, action_encoded: torch.Tensor) -> LatentState:
         assert self.pipeline is not None, "Pipeline not loaded — call initialize() first"
         cs: CosmosPredict2Latent = state.data
-        text_emb = action_encoded if action_encoded.numel() > 0 else cs.text_emb
-        next_state = CosmosPredict2Latent(cs.latent, cs.last_frame, text_emb, cs.neg_text_emb)
+        action = (
+            action_encoded.to(device=self.device, dtype=self.dtype)
+            if action_encoded.numel() > 0
+            else torch.zeros(
+                1, self.chunk_size, self.action_dim, device=self.device, dtype=self.dtype
+            )
+        )
         new_latent, new_last_frame = self.pipeline.denoise(
-            next_state,
+            cs,
             num_steps=self.num_inference_steps,
             guidance=self.guidance_scale,
             seed=int(time.perf_counter() * 1000) % (2**31),
+            extras={"action": action},
         )
         return LatentState(
-            data=CosmosPredict2Latent(new_latent, new_last_frame, text_emb, cs.neg_text_emb),
+            data=CosmosPredict2Latent(new_latent, new_last_frame, cs.text_emb, cs.neg_text_emb),
             device=state.device,
         )
 

@@ -247,10 +247,10 @@ def capture(cfg: CaptureConfig) -> Path:
     r"""Run the wrapper end-to-end at fixed inputs, snapshot every numerical boundary."""
     import torch
 
+    from worldkernels.worlds.pipelines.cosmos_predict2 import CosmosPredict2Latent
+    from worldkernels.worlds.pipelines.cosmos_predict2.deps import ensure_cosmos_predict2
     from worldkernels.core.action import Action
     from worldkernels.core.config import WorldConfig
-    from worldkernels.worlds.adapters._cosmos_predict2 import CosmosLatent
-    from worldkernels.worlds.adapters._cosmos_predict2._deps import ensure_cosmos_predict2
 
     ensure_cosmos_predict2()
     dtype = _parse_dtype(cfg.dtype_str)
@@ -279,12 +279,14 @@ def capture(cfg: CaptureConfig) -> Path:
 
     log.info("Initializing %s/%s on %s/%s", cfg.adapter, cfg.variant, cfg.device, dtype)
     world.initialize(cfg.device, dtype)
+    pipeline = world.pipeline
+    model = pipeline._model
     buf = _CaptureBuffer()
 
-    text_emb = world._compute_text_embedding(cfg.prompt)
+    text_emb = pipeline.encode_text(cfg.prompt)
     buf.record("text_emb", text_emb, prompt=cfg.prompt)
-    if world._neg_text_emb is not None:
-        buf.record("neg_text_emb", world._neg_text_emb)
+    if pipeline.neg_text_emb is not None:
+        buf.record("neg_text_emb", pipeline.neg_text_emb)
 
     init_frame = _make_init_frame(cfg.height, cfg.width).to(cfg.device, dtype)
     pixel_frames_for_encode = cfg.pixel_frames + 1
@@ -295,12 +297,12 @@ def capture(cfg: CaptureConfig) -> Path:
     enc_input = (vid * 255.0).to(torch.uint8).to(dtype) / 255.0
     buf.record("vae_encode_input", enc_input)
     with torch.no_grad():
-        enc_output = world._model.encode(enc_input)
+        enc_output = model.encode(enc_input)
     buf.record("vae_encode_output", enc_output)
 
     buf.record("vae_decode_input", enc_output)
     with torch.no_grad():
-        dec_output = world._model.decode(enc_output)
+        dec_output = model.decode(enc_output)
     buf.record("vae_decode_output", dec_output)
 
     wcfg = WorldConfig(
@@ -321,15 +323,18 @@ def capture(cfg: CaptureConfig) -> Path:
     else:
         action_encoded = torch.empty(0, device=cfg.device, dtype=dtype)
 
-    resolved_text_emb = world._resolve_text_emb(state.data, action_encoded)
-    cs_for_diffusion = CosmosLatent(
+    if is_action_conditioned:
+        resolved_text_emb = state.data.text_emb
+    else:
+        resolved_text_emb = action_encoded if action_encoded.numel() > 0 else state.data.text_emb
+    cs_for_diffusion = CosmosPredict2Latent(
         latent=state.data.latent,
         last_frame=state.data.last_frame,
         text_emb=resolved_text_emb,
         neg_text_emb=state.data.neg_text_emb,
     )
 
-    net = world._model.net
+    net = model.net
     blocks = list(getattr(net, "blocks", []))
     if not blocks:
         raise RuntimeError(f"adapter {cfg.adapter!r} has no .net.blocks; capture flow needs update")
@@ -344,15 +349,19 @@ def capture(cfg: CaptureConfig) -> Path:
     with ExitStack() as stack:
         stack.enter_context(_hook_dit_blocks(net, buf, block_indices))
         stack.enter_context(_hook_dit_forward(net, buf))
-        stack.enter_context(_patch_scheduler_step(world._model, buf))
-        stack.enter_context(_patch_vae_decode(world._model, buf))
-        diffusion_action = action_encoded if action_encoded.numel() > 0 else None
-        new_latent, _ = world._run_diffusion(
+        stack.enter_context(_patch_scheduler_step(model, buf))
+        stack.enter_context(_patch_vae_decode(model, buf))
+        extras = (
+            {"action": action_encoded}
+            if is_action_conditioned and action_encoded.numel() > 0
+            else None
+        )
+        new_latent, _ = pipeline.denoise(
             cs_for_diffusion,
             num_steps=cfg.num_steps,
             guidance=cfg.guidance,
             seed=cfg.seed,
-            action_encoded=diffusion_action,
+            extras=extras,
         )
 
     buf.record("pipeline_final_latent", new_latent)

@@ -1,11 +1,11 @@
-r"""Cosmos-Predict2.5 video-to-world adapter."""
+r"""DreamDojo action-conditioned world model adapter."""
 
 import importlib as _importlib
 
-__all__ = ["CosmosPredict2World"]
+__all__ = ["DreamDojoWorld"]
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
-    "CosmosPredict2World": ("worldkernels.worlds.adapters.cosmos.adapter", "CosmosPredict2World"),
+    "DreamDojoWorld": ("worldkernels.worlds.adapters.dreamdojo.adapter", "DreamDojoWorld"),
 }
 
 
