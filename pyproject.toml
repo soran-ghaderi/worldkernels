@@ -135,6 +135,15 @@ include = ["worldkernels*"]
 minversion = "7.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
+pythonpath = ["."]
+norecursedirs = [
+    "template-projs-toberemoved",
+    ".venv",
+    "build",
+    "dist",
+    "node_modules",
+    "*.egg-info",
+]
 markers = [
     "gpu: requires a CUDA GPU (skip with -m 'not gpu')",
 ]
