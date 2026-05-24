@@ -247,10 +247,10 @@ def capture(cfg: CaptureConfig) -> Path:
     r"""Run the wrapper end-to-end at fixed inputs, snapshot every numerical boundary."""
     import torch
 
-    from worldkernels.worlds.pipelines.cosmos_predict2 import CosmosPredict2Latent
-    from worldkernels.worlds.pipelines.cosmos_predict2.deps import ensure_cosmos_predict2
     from worldkernels.core.action import Action
     from worldkernels.core.config import WorldConfig
+    from worldkernels.worlds.pipelines.cosmos_predict2 import CosmosPredict2Latent
+    from worldkernels.worlds.pipelines.cosmos_predict2.deps import ensure_cosmos_predict2
 
     ensure_cosmos_predict2()
     dtype = _parse_dtype(cfg.dtype_str)
@@ -406,9 +406,7 @@ def _write_manifest(
         "config": cfg_d,
         "torch_version": torch.__version__,
         "cuda_available": bool(torch.cuda.is_available()),
-        "cuda_device_name": (
-            torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
-        ),
+        "cuda_device_name": (torch.cuda.get_device_name(0) if torch.cuda.is_available() else None),
         "cuda_version": torch.version.cuda,
         "dit_blocks_total": n_blocks,
         "dit_blocks_hooked": list(block_indices),

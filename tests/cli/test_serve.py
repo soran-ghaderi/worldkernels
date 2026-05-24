@@ -2,7 +2,7 @@ r"""Tests for worldkernels/cli/serve.py."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from worldkernels.cli.serve import run_serve
 

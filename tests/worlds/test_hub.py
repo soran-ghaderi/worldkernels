@@ -108,7 +108,6 @@ class TestEnsureModelDeps:
         assert called is False
 
     def test_card_without_pip_extra_is_noop(self, monkeypatch):
-        called = False
         monkeypatch.setattr("subprocess.check_call", lambda *a, **kw: setattr(self_, "_c", True))
         register_model("_no_extra", ModelCard(adapter="dummy"))
         try:

@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
+from tests._helpers.factories import make_world_config
+from tests._helpers.mocks import FakeTensor, MockWorld
 from worldkernels.core.action import Action
 from worldkernels.core.errors import (
     CheckpointNotFoundError,
@@ -15,9 +17,6 @@ from worldkernels.core.errors import (
 )
 from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState, Session, SessionStatus
-
-from tests._helpers.factories import make_latent_state, make_world_config
-from tests._helpers.mocks import FakeTensor, MockWorld
 
 
 class TestSessionStatus:

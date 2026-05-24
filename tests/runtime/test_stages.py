@@ -93,9 +93,7 @@ class TestStageTiming:
         assert t.total_ms == 0.0
 
     def test_total_sums_components(self):
-        t = StageTiming(
-            encode_action_ms=1.0, transition_ms=2.0, decode_observation_ms=4.0
-        )
+        t = StageTiming(encode_action_ms=1.0, transition_ms=2.0, decode_observation_ms=4.0)
         assert t.total_ms == 7.0
 
     def test_as_dict_includes_total(self):

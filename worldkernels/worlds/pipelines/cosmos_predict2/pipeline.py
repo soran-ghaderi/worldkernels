@@ -266,8 +266,14 @@ class CosmosPredict2Pipeline:
         lh, lw = height // self.SPATIAL_FACTOR, width // self.SPATIAL_FACTOR
         latent_t = self._model.tokenizer.get_latent_num_frames(frames_per_step + 1)
         latent = torch.randn(
-            1, self.LATENT_CH, latent_t, lh, lw,
-            generator=gen, dtype=self.dtype, device=self.device,
+            1,
+            self.LATENT_CH,
+            latent_t,
+            lh,
+            lw,
+            generator=gen,
+            dtype=self.dtype,
+            device=self.device,
         )
         last_frame = torch.zeros(1, 3, height, width, dtype=self.dtype, device=self.device)
         return latent, last_frame
@@ -352,7 +358,9 @@ class CosmosPredict2Pipeline:
         *,
         extras: Mapping[str, torch.Tensor] | None = None,
     ) -> dict[str, Any]:
-        last_frame = state.last_frame.unsqueeze(0) if state.last_frame.ndim == 3 else state.last_frame
+        last_frame = (
+            state.last_frame.unsqueeze(0) if state.last_frame.ndim == 3 else state.last_frame
+        )
         H, W = last_frame.shape[-2], last_frame.shape[-1]
         num_frames = self._model.tokenizer.get_pixel_num_frames(self._model.config.state_t)
         vid = torch.zeros(1, 3, num_frames, H, W, device=self.device, dtype=self.dtype)

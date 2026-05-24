@@ -6,6 +6,7 @@ import logging
 
 import pytest
 
+from tests._helpers.mocks import MockWorld
 from worldkernels.worlds import registry
 from worldkernels.worlds.registry import (
     _ensure_plugins_loaded,
@@ -14,8 +15,6 @@ from worldkernels.worlds.registry import (
     list_worlds,
     register_world,
 )
-
-from tests._helpers.mocks import MockWorld
 
 
 class TestRegisterAndLookup:

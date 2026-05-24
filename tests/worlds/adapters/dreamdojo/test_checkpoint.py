@@ -3,12 +3,10 @@ r"""Tests for worldkernels/worlds/adapters/dreamdojo/checkpoint.py."""
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 import torch
 
-from worldkernels.worlds.adapters.dreamdojo import checkpoint as ckpt_mod
 from worldkernels.worlds.adapters.dreamdojo.checkpoint import (
     HF_REPO,
     download_dreamdojo_checkpoint,
@@ -36,9 +34,7 @@ class TestDownload:
         existing.write_bytes(b"")
 
         snapshot = MagicMock(return_value=str(tmp_path / "snap"))
-        monkeypatch.setattr(
-            "huggingface_hub.snapshot_download", snapshot, raising=False
-        )
+        monkeypatch.setattr("huggingface_hub.snapshot_download", snapshot, raising=False)
         path = download_dreamdojo_checkpoint("2B_pretrain")
         assert Path(path) == existing
         snapshot.assert_called_once_with(
@@ -55,9 +51,7 @@ class TestDownload:
         iter_dir = base / "iter_000001"
 
         snapshot = MagicMock(return_value=str(tmp_path / "snap"))
-        monkeypatch.setattr(
-            "huggingface_hub.snapshot_download", snapshot, raising=False
-        )
+        monkeypatch.setattr("huggingface_hub.snapshot_download", snapshot, raising=False)
 
         def fake_dcp(model_dir, full_pt_path):
             torch.save(
@@ -69,9 +63,7 @@ class TestDownload:
                 full_pt_path,
             )
 
-        monkeypatch.setattr(
-            "torch.distributed.checkpoint.format_utils.dcp_to_torch_save", fake_dcp
-        )
+        monkeypatch.setattr("torch.distributed.checkpoint.format_utils.dcp_to_torch_save", fake_dcp)
 
         path = download_dreamdojo_checkpoint("2B_pretrain")
         out = Path(path)

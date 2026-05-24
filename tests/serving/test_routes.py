@@ -75,8 +75,9 @@ class TestSessionRoutes:
         app.state.engine.load_model("dummy")
         c = TestClient(app)
         try:
-            c.post("/v1/sessions", json={"world": "dummy", "height": 32, "width": 32, "frames_per_step": 1})
-            r = c.post("/v1/sessions", json={"world": "dummy", "height": 32, "width": 32, "frames_per_step": 1})
+            payload = {"world": "dummy", "height": 32, "width": 32, "frames_per_step": 1}
+            c.post("/v1/sessions", json=payload)
+            r = c.post("/v1/sessions", json=payload)
             assert r.status_code == 429
         finally:
             app.state.engine.shutdown()
@@ -161,9 +162,7 @@ class TestSessionRoutes:
         assert r.status_code == 404
 
     def test_restore_unknown_session_404(self, client):
-        r = client.post(
-            "/v1/sessions/missing/restore", json={"checkpoint_id": "ck"}
-        )
+        r = client.post("/v1/sessions/missing/restore", json={"checkpoint_id": "ck"})
         assert r.status_code == 404
 
     def test_branch_creates_new_session(self, client):
@@ -228,9 +227,7 @@ class TestRouteErrors:
             raise SessionTerminatedError(body["session_id"])
 
         monkeypatch.setattr(sess, "step", fake_step)
-        r = client.post(
-            f"/v1/sessions/{body['session_id']}/step", json={"action_type": "null"}
-        )
+        r = client.post(f"/v1/sessions/{body['session_id']}/step", json={"action_type": "null"})
         assert r.status_code == 410
 
     def test_step_world_kernel_error_returns_500(self, monkeypatch, client):
@@ -246,9 +243,7 @@ class TestRouteErrors:
             raise WorldKernelError("internal")
 
         monkeypatch.setattr(sess, "step", fake_step)
-        r = client.post(
-            f"/v1/sessions/{body['session_id']}/step", json={"action_type": "null"}
-        )
+        r = client.post(f"/v1/sessions/{body['session_id']}/step", json={"action_type": "null"})
         assert r.status_code == 500
 
 
@@ -260,7 +255,15 @@ class TestHelpers:
         ).json()
         sess = client.app.state.engine.get_session(body_first["session_id"])
         summary = _session_summary(sess)
-        for key in ("session_id", "world_id", "status", "step_index", "seed", "parent_session_id", "created_at"):
+        for key in (
+            "session_id",
+            "world_id",
+            "status",
+            "step_index",
+            "seed",
+            "parent_session_id",
+            "created_at",
+        ):
             assert key in summary
 
     def test_observation_to_dict_with_frames(self):

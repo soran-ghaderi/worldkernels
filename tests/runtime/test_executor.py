@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import torch
 
+from tests._helpers.factories import make_action, make_latent_state
+from tests._helpers.mocks import SlowMockWorld
 from worldkernels.runtime.connectors import LocalConnector
 from worldkernels.runtime.executor import Executor
 from worldkernels.runtime.stages import (
-    DEFAULT_PIPELINE_STAGES,
     StageConfig,
-    StageExecMode,
     StageOutput,
     StageType,
 )
-
-from tests._helpers.factories import make_action, make_latent_state
-from tests._helpers.mocks import MockWorld, SlowMockWorld
 
 
 class TestExecutorInit:

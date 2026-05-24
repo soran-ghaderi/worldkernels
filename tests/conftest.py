@@ -9,12 +9,13 @@ import torch
 
 os.environ["WORLDKERNELS_NO_AUTO_INSTALL"] = "1"
 
-from worldkernels.core.engine import WorldKernel  # noqa: E402
-from worldkernels.worlds import hub as _hub  # noqa: E402
-from worldkernels.worlds import registry as _registry  # noqa: E402
-
 from tests._helpers.factories import make_world_config  # noqa: E402
 from tests._helpers.mocks import MockWorld  # noqa: E402
+from worldkernels.core.engine import WorldKernel  # noqa: E402
+from worldkernels.worlds import (
+    hub as _hub,  # noqa: E402
+    registry as _registry,  # noqa: E402
+)
 
 
 @pytest.fixture(autouse=True)

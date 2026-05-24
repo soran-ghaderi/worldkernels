@@ -5,7 +5,7 @@ The pipeline is mocked throughout — we only verify the adapter wiring
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -42,7 +42,10 @@ def _make_state(h: int = 480, w: int = 640, frames: int = 5) -> LatentState:
 def _make_pipeline_mock(h=480, w=640, frames=5):
     fake_video = torch.zeros(1, 3, frames, h, w)
     pipeline = MagicMock(spec=CosmosPredict2Pipeline)
-    pipeline.denoise.return_value = (torch.randn(1, LATENT_CH, frames, h // SF, w // SF), torch.zeros(3, h, w))
+    pipeline.denoise.return_value = (
+        torch.randn(1, LATENT_CH, frames, h // SF, w // SF),
+        torch.zeros(3, h, w),
+    )
     pipeline.decode.return_value = fake_video
     pipeline.encode_text.return_value = torch.randn(1, 32, 16)
     return pipeline
@@ -74,7 +77,11 @@ class TestInit:
 
     def test_overrides(self):
         w = CosmosPredict2World(
-            ckpt_path="/p", experiment="e", num_inference_steps=2, guidance_scale=1.5, extra="ignored"
+            ckpt_path="/p",
+            experiment="e",
+            num_inference_steps=2,
+            guidance_scale=1.5,
+            extra="ignored",
         )
         assert w.ckpt_path == "/p"
         assert w._experiment_override == "e"
@@ -108,7 +115,8 @@ class TestInitialize:
             download,
         )
         monkeypatch.setattr(
-            cosmos_adapter, "CosmosPredict2Pipeline",
+            cosmos_adapter,
+            "CosmosPredict2Pipeline",
             lambda **kw: _attached_load(_make_pipeline_mock()),
         )
         w = CosmosPredict2World()

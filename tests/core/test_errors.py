@@ -25,7 +25,12 @@ from worldkernels.core.errors import (
         (SessionLimitError, (8,), {"max_sessions": 8}, "8"),
         (SessionNotFoundError, ("s_1",), {"session_id": "s_1"}, "s_1"),
         (SessionTerminatedError, ("s_1",), {"session_id": "s_1"}, "terminated"),
-        (VRAMExhaustedError, (1024.0, 256.0), {"required_mb": 1024.0, "available_mb": 256.0}, "1024"),
+        (
+            VRAMExhaustedError,
+            (1024.0, 256.0),
+            {"required_mb": 1024.0, "available_mb": 256.0},
+            "1024",
+        ),
         (WorldInitError, ("foo", "bar"), {"world_id": "foo", "reason": "bar"}, "bar"),
         (WorldAlreadyLoadedError, ("foo",), {"name": "foo"}, "already loaded"),
         (

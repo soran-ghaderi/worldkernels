@@ -2,8 +2,6 @@ r"""Tests for worldkernels/cli/run.py."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from worldkernels.cli.run import _raw_to_arrays, _save_frames, _save_video, run_session

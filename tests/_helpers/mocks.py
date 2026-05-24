@@ -77,7 +77,14 @@ class MockWorld(AbstractWorld):
 
     def create_initial_state(self, config: WorldConfig, seed: int) -> LatentState:
         gen = torch.Generator(device="cpu").manual_seed(seed)
-        data = torch.randn(1, 4, max(1, config.height // 8), max(1, config.width // 8), generator=gen, dtype=self.dtype)
+        data = torch.randn(
+            1,
+            4,
+            max(1, config.height // 8),
+            max(1, config.width // 8),
+            generator=gen,
+            dtype=self.dtype,
+        )
         return LatentState(data=data, device=self.device)
 
 

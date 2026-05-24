@@ -31,9 +31,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="HxW for captured fixtures (e.g. 240x320).",
     )
     g.addoption("--fixture-frames", type=int, default=5)
-    g.addoption(
-        "--fixture-dtype", default="bfloat16", choices=("bfloat16", "float16", "float32")
-    )
+    g.addoption("--fixture-dtype", default="bfloat16", choices=("bfloat16", "float16", "float32"))
     g.addoption("--fixture-seed", type=int, default=1234)
     g.addoption("--fixture-steps", type=int, default=4)
 

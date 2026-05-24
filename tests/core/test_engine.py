@@ -7,6 +7,8 @@ from unittest.mock import patch
 import pytest
 import torch
 
+from tests._helpers.factories import make_world_config
+from tests._helpers.mocks import MockWorld, register_mock_world, unregister_world
 from worldkernels.core.engine import WorldKernel, _default_dtype
 from worldkernels.core.errors import (
     SessionLimitError,
@@ -15,9 +17,6 @@ from worldkernels.core.errors import (
     WorldInitError,
     WorldNotFoundError,
 )
-
-from tests._helpers.factories import make_world_config
-from tests._helpers.mocks import MockWorld, register_mock_world, unregister_world
 
 
 class TestDefaultDtype:
@@ -29,14 +28,16 @@ class TestDefaultDtype:
             assert _default_dtype("cuda") == torch.float32
 
     def test_cuda_ampere_uses_bfloat16(self):
-        with patch("torch.cuda.is_available", return_value=True), patch(
-            "torch.cuda.get_device_capability", return_value=(8, 0)
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.get_device_capability", return_value=(8, 0)),
         ):
             assert _default_dtype("cuda") == torch.bfloat16
 
     def test_cuda_pre_ampere_uses_float16(self):
-        with patch("torch.cuda.is_available", return_value=True), patch(
-            "torch.cuda.get_device_capability", return_value=(7, 5)
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.get_device_capability", return_value=(7, 5)),
         ):
             assert _default_dtype("cuda") == torch.float16
 
@@ -185,8 +186,9 @@ class TestCreateSession:
             hungry.initialize("cpu", torch.float32)
             wk._worlds["_hungry"] = hungry
             wk.device = "cuda:0"
-            with patch("torch.cuda.is_available", return_value=True), patch(
-                "torch.cuda.mem_get_info", return_value=(1024 * 1024, 1024 * 1024)
+            with (
+                patch("torch.cuda.is_available", return_value=True),
+                patch("torch.cuda.mem_get_info", return_value=(1024 * 1024, 1024 * 1024)),
             ):
                 with pytest.raises(VRAMExhaustedError):
                     wk.create_session("_hungry", config=make_world_config())
@@ -198,8 +200,9 @@ class TestCreateSession:
         try:
             wk.load_model("dummy")
             wk.device = "cuda:0"
-            with patch("torch.cuda.is_available", return_value=True), patch(
-                "torch.cuda.mem_get_info", return_value=(10 * 1024**3, 10 * 1024**3)
+            with (
+                patch("torch.cuda.is_available", return_value=True),
+                patch("torch.cuda.mem_get_info", return_value=(10 * 1024**3, 10 * 1024**3)),
             ):
                 s = wk.create_session("dummy", config=make_world_config())
                 assert s is not None

@@ -26,14 +26,23 @@ class TestAbstractWorldContract:
 
     def test_warmup_is_optional_noop(self):
         class W(AbstractWorld):
-            def initialize(self, device, dtype): pass
-            def encode_action(self, action): return torch.zeros(1)
-            def transition(self, state, action_encoded): return state
+            def initialize(self, device, dtype):
+                pass
+
+            def encode_action(self, action):
+                return torch.zeros(1)
+
+            def transition(self, state, action_encoded):
+                return state
+
             def decode_observation(self, state, modalities):
                 from worldkernels.core.observation import Observation
 
                 return Observation(step_index=0, generation_time_ms=0.0)
-            def estimate_vram_mb(self, config): return 0.0
+
+            def estimate_vram_mb(self, config):
+                return 0.0
+
             def create_initial_state(self, config, seed):
                 from worldkernels.core.session import LatentState
 

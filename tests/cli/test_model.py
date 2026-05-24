@@ -2,7 +2,7 @@ r"""Tests for worldkernels/cli/model.py."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -48,9 +48,9 @@ class TestRunInspect:
             run_inspect("xyz_unknown_model", device="cpu")
 
     def test_with_default_config_prints_config(self, monkeypatch, capsys):
+        from tests._helpers.mocks import MockWorld
         from worldkernels.core.config import WorldConfig
         from worldkernels.worlds import registry as reg
-        from tests._helpers.mocks import MockWorld
 
         class _WithCfg(MockWorld):
             default_config = WorldConfig(height=16, width=16)
@@ -65,8 +65,8 @@ class TestRunInspect:
             reg._REGISTRY.pop("_pytest_with_cfg", None)
 
     def test_vram_estimate_failure_swallowed(self, capsys):
-        from worldkernels.worlds import registry as reg
         from tests._helpers.mocks import MockWorld
+        from worldkernels.worlds import registry as reg
 
         class _BadInit(MockWorld):
             def initialize(self, device, dtype):

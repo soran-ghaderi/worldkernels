@@ -14,12 +14,15 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
-from worldkernels.worlds.pipelines.cosmos_predict2 import CosmosPredict2Latent, CosmosPredict2Pipeline
 from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState
 from worldkernels.runtime.stages import StageExecMode, StageType, TransitionMode
 from worldkernels.worlds.adapters.dreamdojo.checkpoint import download_dreamdojo_checkpoint
 from worldkernels.worlds.base import AbstractWorld
+from worldkernels.worlds.pipelines.cosmos_predict2 import (
+    CosmosPredict2Latent,
+    CosmosPredict2Pipeline,
+)
 
 if TYPE_CHECKING:
     from worldkernels.core.action import Action
