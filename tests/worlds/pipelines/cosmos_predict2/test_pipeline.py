@@ -432,7 +432,6 @@ class TestEncodeTextRouting:
 
 class TestDownloadHelper:
     def test_calls_hf_hub_download(self, monkeypatch):
-
         fake = MagicMock(return_value="/path")
         monkeypatch.setattr("huggingface_hub.hf_hub_download", fake, raising=False)
         assert _download_hf_file("repo", "file.bin") == "/path"
