@@ -1,4 +1,9 @@
-"""WorldKernel main engine class."""
+r"""WorldEngine — the request-and-lifecycle layer.
+
+Owns the world registry and session registry, resolves and loads models, and
+creates sessions. Execution is delegated to a `Scheduler`, which
+dispatches to a `Worker`; the engine itself runs no model compute.
+"""
 
 from __future__ import annotations
 
@@ -16,9 +21,9 @@ from worldkernels.core.errors import (
 )
 
 if TYPE_CHECKING:
-    from worldkernels.core.config import WorldConfig
+    from worldkernels.config import WorldConfig
     from worldkernels.core.session import Session
-    from worldkernels.worlds.base import AbstractWorld
+    from worldkernels.worlds.base import WorldModel
 
 log = logging.getLogger(__name__)
 
@@ -27,18 +32,17 @@ def _default_dtype(device: str) -> torch.dtype:
     if device == "cpu":
         return torch.float32
     if torch.cuda.is_available():
-        cap = torch.cuda.get_device_capability()
-        if cap >= (8, 0):
+        if torch.cuda.get_device_capability() >= (8, 0):
             return torch.bfloat16
         return torch.float16
     return torch.float32
 
 
-class WorldKernel:
-    r"""GPU-first world model simulation engine.
+class WorldEngine:
+    r"""GPU-first world-model simulation engine.
 
     Args:
-        device: Target device ("cuda", "cpu").
+        device: Target device (``"cuda"``, ``"cpu"``, or ``"cuda:N"``).
         max_sessions: Maximum concurrent sessions.
         offload_idle: Whether to offload idle session state.
     """
@@ -54,26 +58,21 @@ class WorldKernel:
         self.offload_idle = offload_idle
         self.dtype = _default_dtype(device)
 
-        # world_alias -> instantiated AbstractWorld
-        self._worlds: dict[str, AbstractWorld] = {}
+        self._worlds: dict[str, WorldModel] = {}
         self._sessions: dict[str, Session] = {}
 
-        # Shared executor (one per engine for now)
-        from worldkernels.runtime.executor import Executor
+        from worldkernels.scheduler import Scheduler
+        from worldkernels.worker import Worker
 
-        self._executor = Executor(
-            device=device,
-            dtype=self.dtype,
-        )
+        self._worker = Worker(device=device, dtype=self.dtype)
+        self._scheduler = Scheduler(self._worker)
 
         log.info(
-            "WorldKernel initialized: device=%s, dtype=%s, max_sessions=%d",
+            "WorldEngine initialized: device=%s, dtype=%s, max_sessions=%d",
             device,
             self.dtype,
             max_sessions,
         )
-
-    # ---- world loading ---------------------------------------------------
 
     def load_model(
         self,
@@ -84,18 +83,17 @@ class WorldKernel:
     ) -> None:
         r"""Load a world model by short name, HF repo ID, or registry name.
 
-        Resolution order: hub (short names + HF IDs) -> worlds registry.
-        Hub default kwargs are merged with user kwargs (user wins).
+        Resolution order: hub (short names + HF IDs) -> worlds registry. Hub
+        default kwargs are merged with user kwargs (user wins). Generators are
+        resolved to `GeneratorWorld` automatically.
 
         Args:
-            model_id: Short name (e.g. "dreamdojo-2b-gr1"), HF repo ID
-                (e.g. "nvidia/DreamDojo"), or adapter registry name.
+            model_id: Short name, HF repo ID, or adapter registry name.
             alias: Optional short name for the loaded model.
             trust_remote_code: Allow custom code from HF Hub.
-            **kwargs: Forwarded to the adapter constructor (e.g.
-                ``variant``, ``ckpt_path`` for DreamDojo).
+            **kwargs: Forwarded to the world constructor.
         """
-        from worldkernels.core.config import WorldConfig as WC
+        from worldkernels.config import WorldConfig as WC
         from worldkernels.worlds.hub import ensure_model_deps, resolve_model
         from worldkernels.worlds.registry import get_world_class
 
@@ -103,7 +101,6 @@ class WorldKernel:
         adapter_name, merged_kwargs = resolve_model(model_id, **kwargs)
 
         key = alias or model_id.split("/")[-1]
-
         if key in self._worlds:
             raise WorldAlreadyLoadedError(key)
 
@@ -112,7 +109,7 @@ class WorldKernel:
         except KeyError:
             raise WorldNotFoundError(model_id)
 
-        world: AbstractWorld = world_cls(**merged_kwargs)
+        world: WorldModel = world_cls(**merged_kwargs)
         try:
             world.initialize(device=self.device, dtype=self.dtype)
         except Exception as exc:
@@ -123,8 +120,6 @@ class WorldKernel:
         self._worlds[key] = world
         log.info("Loaded world: %s (class=%s)", key, world_cls.__qualname__)
 
-    # ---- session management ----------------------------------------------
-
     def create_session(
         self,
         world: str,
@@ -132,35 +127,32 @@ class WorldKernel:
         seed: int | None = None,
     ) -> Session:
         r"""Create a new simulation session bound to a loaded world model."""
-        from worldkernels.core.config import WorldConfig as WC
+        from worldkernels.config import WorldConfig as WC
         from worldkernels.core.session import Session
 
         if world not in self._worlds:
             raise WorldNotFoundError(world)
-
         if len(self._sessions) >= self.max_sessions:
             raise SessionLimitError(self.max_sessions)
 
         cfg = config or WC()
         actual_seed = seed if seed is not None else 0
-
         world_instance = self._worlds[world]
 
-        vram_mb = world_instance.estimate_vram_mb(cfg)
+        vram_mb = world_instance.profile_vram(cfg)
         if self.device.startswith("cuda") and torch.cuda.is_available():
             free_mb = torch.cuda.mem_get_info()[0] / (1024 * 1024)
             if vram_mb > free_mb:
                 raise VRAMExhaustedError(required_mb=vram_mb, available_mb=free_mb)
 
         initial_state = world_instance.create_initial_state(cfg, actual_seed)
-
         session = Session(
             world_id=world,
             config=cfg,
             state=initial_state,
             seed=actual_seed,
             _world=world_instance,
-            _executor=self._executor,
+            _scheduler=self._scheduler,
         )
         self._sessions[session.session_id] = session
         log.info("Created session: %s (world=%s)", session.session_id, world)
@@ -184,8 +176,7 @@ class WorldKernel:
         r"""Unload a world model and close all its sessions."""
         if name not in self._worlds:
             raise WorldNotFoundError(name)
-        sessions_to_close = [sid for sid, sess in self._sessions.items() if sess.world_id == name]
-        for sid in sessions_to_close:
+        for sid in [s for s, sess in self._sessions.items() if sess.world_id == name]:
             self.close_session(sid)
         del self._worlds[name]
         log.info("Unloaded world: %s", name)
@@ -195,4 +186,4 @@ class WorldKernel:
             session.close()
         self._sessions.clear()
         self._worlds.clear()
-        log.info("WorldKernel shut down.")
+        log.info("WorldEngine shut down.")

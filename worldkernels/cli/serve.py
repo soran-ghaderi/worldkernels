@@ -28,9 +28,9 @@ def run_serve(
     app = create_app(cfg, device=device)
 
     if model is not None:
-        from worldkernels.core.engine import WorldKernel
+        from worldkernels.engine import WorldEngine
 
-        engine: WorldKernel = app.state.engine
+        engine: WorldEngine = app.state.engine
         print(f"Pre-loading model: {model}")
         engine.load_model(model, **(model_kwargs or {}))
         print(f"Model '{model}' ready.")

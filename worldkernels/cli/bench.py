@@ -6,7 +6,7 @@ import time
 from contextlib import contextmanager
 from typing import Generator
 
-from worldkernels import Action, WorldConfig, WorldKernel
+from worldkernels import Action, WorldConfig, WorldEngine
 from worldkernels.core.session import Session
 
 
@@ -18,9 +18,9 @@ def bench_env(
     height: int = 64,
     width: int = 64,
     num_sessions: int = 1,
-) -> Generator[tuple[WorldKernel, list[Session]], None, None]:
+) -> Generator[tuple[WorldEngine, list[Session]], None, None]:
     r"""Shared setup/teardown for benchmark commands."""
-    wk = WorldKernel(device=device, max_sessions=max_sessions)
+    wk = WorldEngine(device=device, max_sessions=max_sessions)
     wk.load_model(world)
     world_key = world.split("/")[-1]
     config = WorldConfig(height=height, width=width, frames_per_step=1)
@@ -104,13 +104,13 @@ def run_vram(
     print("-" * 28)
     for h, w in pairs:
         cfg = WorldConfig(height=h, width=w)
-        vram = instance.estimate_vram_mb(cfg)
+        vram = instance.profile_vram(cfg)
         print(f"  {h:4d}x{w:<4d}      {vram:8.1f}")
 
 
 def run_startup(world: str, device: str) -> None:
     t0 = time.perf_counter()
-    wk = WorldKernel(device=device)
+    wk = WorldEngine(device=device)
     t_engine = time.perf_counter() - t0
 
     t1 = time.perf_counter()

@@ -87,7 +87,7 @@ def run_inspect(model_id: str, device: str = "cpu", config_json: str | None = No
 
         world = cls()
         world.initialize(device=device, dtype=torch.float32 if device == "cpu" else torch.bfloat16)
-        vram = world.estimate_vram_mb(cfg)
+        vram = world.profile_vram(cfg)
         print()
         print(
             f"VRAM estimate:      {vram:.1f} MB  (config: {cfg.height}x{cfg.width}, "

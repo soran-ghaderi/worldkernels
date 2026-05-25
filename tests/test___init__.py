@@ -22,7 +22,6 @@ def test_all_exports_resolvable():
 def test_lazy_exports_match_targets():
     from worldkernels.core.action import Action
     from worldkernels.core.config import ServerConfig, WorldConfig
-    from worldkernels.core.engine import WorldKernel
     from worldkernels.core.errors import (
         CheckpointNotFoundError,
         SessionLimitError,
@@ -37,6 +36,7 @@ def test_lazy_exports_match_targets():
     )
     from worldkernels.core.observation import Observation
     from worldkernels.core.session import LatentState, Session, SessionStatus
+    from worldkernels.engine import WorldEngine
     from worldkernels.runtime.stages import (
         StageConfig,
         StageExecMode,
@@ -50,7 +50,7 @@ def test_lazy_exports_match_targets():
         "Action": Action,
         "WorldConfig": WorldConfig,
         "ServerConfig": ServerConfig,
-        "WorldKernel": WorldKernel,
+        "WorldEngine": WorldEngine,
         "Observation": Observation,
         "Session": Session,
         "SessionStatus": SessionStatus,

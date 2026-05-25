@@ -11,7 +11,7 @@ from worldkernels.serving.auth import require_api_key
 
 
 def _call(dep, key):
-    return asyncio.get_event_loop().run_until_complete(dep(key=key))
+    return asyncio.run(dep(key=key))
 
 
 class TestRequireApiKey:

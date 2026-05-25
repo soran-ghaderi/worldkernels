@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from worldkernels.core.action import Action
     from worldkernels.core.config import WorldConfig
     from worldkernels.core.observation import Observation
-    from worldkernels.runtime.executor import Executor
-    from worldkernels.worlds.base import AbstractWorld
+    from worldkernels.scheduler import Scheduler
+    from worldkernels.worlds.base import WorldModel
 
 
 class SessionStatus(str, Enum):
@@ -78,9 +78,9 @@ class Session:
     # Checkpoints: checkpoint_id -> LatentState snapshot
     _checkpoints: dict[str, LatentState] = field(default_factory=dict, repr=False)
 
-    # Runtime references (injected by WorldKernel, not serialized)
-    _world: AbstractWorld | None = field(default=None, repr=False)
-    _executor: Executor | None = field(default=None, repr=False)
+    # Runtime references (injected by WorldEngine, not serialized)
+    _world: WorldModel | None = field(default=None, repr=False)
+    _scheduler: Scheduler | None = field(default=None, repr=False)
 
     # ---- core hot path ---------------------------------------------------
 
@@ -108,16 +108,16 @@ class Session:
         if self.status == SessionStatus.PAUSED:
             raise SessionPausedError(self.session_id)
 
-        if self._world is None or self._executor is None:
+        if self._world is None or self._scheduler is None:
             raise RuntimeError(
                 "Session not bound to a world model. "
-                "Create sessions via WorldKernel.create_session()."
+                "Create sessions via WorldEngine.create_session()."
             )
 
         if modalities is None:
             modalities = ["frames"]
 
-        new_state, obs = self._executor.step(
+        new_state, obs = self._scheduler.step(
             world=self._world,
             state=self.state,
             action=action,
@@ -157,7 +157,7 @@ class Session:
             seed=self.seed,
             parent_session_id=self.session_id,
             _world=self._world,
-            _executor=self._executor,
+            _scheduler=self._scheduler,
         )
 
     def close(self) -> None:

@@ -22,7 +22,7 @@ class TestRunServe:
         called = {}
         monkeypatch.setattr("uvicorn.run", lambda *a, **kw: called.setdefault("uvicorn", True))
 
-        with patch("worldkernels.core.engine.WorldKernel.load_model") as load_mock:
+        with patch("worldkernels.engine.WorldEngine.load_model") as load_mock:
             run_serve("0.0.0.0", 8000, 2, None, "cpu", "dummy", {})
             load_mock.assert_called_once_with("dummy")
 
@@ -32,6 +32,6 @@ class TestRunServe:
 
     def test_with_model_kwargs(self, monkeypatch):
         monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
-        with patch("worldkernels.core.engine.WorldKernel.load_model") as load_mock:
+        with patch("worldkernels.engine.WorldEngine.load_model") as load_mock:
             run_serve("0.0.0.0", 8000, 1, "k", "cpu", "dummy", {"variant": "v"})
             load_mock.assert_called_once_with("dummy", variant="v")

@@ -190,12 +190,6 @@ class TestSessionRoutes:
 
 
 class TestRouteErrors:
-    def test_engine_placeholder_dependency_raises(self):
-        from worldkernels.serving.routes import _engine
-
-        with pytest.raises(RuntimeError, match="not configured"):
-            _engine()
-
     def test_world_init_error_returns_500(self, monkeypatch, client):
         from worldkernels.core.errors import WorldInitError
 
@@ -219,19 +213,13 @@ class TestRouteErrors:
         )
         assert r.status_code == 507
 
-    def test_step_session_terminated_returns_410(self, monkeypatch, client):
-        from worldkernels.core.errors import SessionTerminatedError
-
+    def test_step_session_terminated_returns_410(self, client):
         body = client.post(
             "/v1/sessions",
             json={"world": "dummy", "height": 32, "width": 32, "frames_per_step": 1},
         ).json()
         sess = client.app.state.engine.get_session(body["session_id"])
-
-        def fake_step(*a, **kw):
-            raise SessionTerminatedError(body["session_id"])
-
-        monkeypatch.setattr(sess, "step", fake_step)
+        sess.close()
         r = client.post(f"/v1/sessions/{body['session_id']}/step", json={"action_type": "null"})
         assert r.status_code == 410
 
@@ -244,10 +232,10 @@ class TestRouteErrors:
         ).json()
         sess = client.app.state.engine.get_session(body["session_id"])
 
-        def fake_step(*a, **kw):
+        def fake_transition(*a, **kw):
             raise WorldKernelError("internal")
 
-        monkeypatch.setattr(sess, "step", fake_step)
+        monkeypatch.setattr(sess._world, "transition", fake_transition)
         r = client.post(f"/v1/sessions/{body['session_id']}/step", json={"action_type": "null"})
         assert r.status_code == 500
 
@@ -281,7 +269,7 @@ class TestHelpers:
             frames=[b"\x01\x02"],
             stage_timing=StageTiming(encode_action_ms=1.0),
         )
-        out = _observation_to_dict(obs, "s1", 1)
+        out = _observation_to_dict(obs, "s1")
         assert out["session_id"] == "s1"
         assert out["frames"] == ["AQI="]
         assert out["num_frames"] == 1
@@ -291,7 +279,7 @@ class TestHelpers:
         from worldkernels.core.observation import Observation
 
         obs = Observation(step_index=0, generation_time_ms=0.0)
-        out = _observation_to_dict(obs, "s1", 0)
+        out = _observation_to_dict(obs, "s1")
         assert "frames" not in out
         assert "num_frames" not in out
         assert "stage_timing" not in out
@@ -300,6 +288,6 @@ class TestHelpers:
         from worldkernels.core.observation import Observation
 
         obs = Observation(step_index=0, generation_time_ms=0.0, frames=[42, b"x"])
-        out = _observation_to_dict(obs, "s1", 0)
+        out = _observation_to_dict(obs, "s1")
         assert out["frames"][0] is None
         assert out["frames"][1] == "eA=="
