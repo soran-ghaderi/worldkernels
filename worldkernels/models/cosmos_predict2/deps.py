@@ -11,6 +11,7 @@ Handles three concerns:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import logging
 import os
 import sys
@@ -26,6 +27,7 @@ def _inject_stub(module_name: str, attrs: dict | None = None) -> types.ModuleTyp
     if module_name in sys.modules:
         return sys.modules[module_name]
     mod = types.ModuleType(module_name)
+    mod.__spec__ = importlib.util.spec_from_loader(module_name, loader=None)
     if attrs:
         for k, v in attrs.items():
             setattr(mod, k, v)

@@ -1,25 +1,38 @@
-r"""Video diffusion pipeline backed by NVIDIA's cosmos_predict2 package.
+r"""Video generator backed by NVIDIA's cosmos_predict2 package.
 
 Wraps cosmos_predict2 for inference: model loading + path patching, text/image
-encoding, the denoising loop, and VAE decode. Adapters compose this pipeline
-rather than inheriting from it — the AbstractWorld 3-stage contract lives on
-the adapter, the pipeline handles all cosmos_predict2-specific machinery.
-
-Phase 5 replaces this with a native pipeline under worldkernels/pipelines/.
+encoding, the denoising loop, and VAE decode. Implements the
+`VideoGenerator` contract so it can be wrapped
+by `GeneratorWorld`; it is also composed
+directly by the action-conditioned `DreamDojoWorld`.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 import torch
+
+from worldkernels.models.base import GenerationResult, VideoGenerator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
 log = logging.getLogger(__name__)
+
+COSMOS_HF_REPO = "nvidia/Cosmos-Predict2.5-2B"
+COSMOS_CKPT_FILE = "base/pre-trained/d20b7120-df3e-4911-919d-db6e08bad31c_ema_bf16.pt"
+DEFAULT_COSMOS_CONFIG = "cosmos_predict2/_src/predict2/configs/video2world/config.py"
+DEFAULT_COSMOS_EXPERIMENT = (
+    "Stage-c_pt_4-reason_embeddings-v1p1-Index-26-Size-2B-Res-720-Fps-16"
+    "-Note-T2V_high_sigma_loss_reweighted_1_1_rectified_flow_only_resume2"
+)
+FALLBACK_CONFIG = "cosmos_predict2/_src/predict2/action/configs/action_conditioned/config.py"
+FALLBACK_EXPERIMENT = "dreamdojo_2b_480_640_pretrain"
 
 
 def _download_hf_file(repo_id: str, filename: str) -> str:
@@ -29,7 +42,7 @@ def _download_hf_file(repo_id: str, filename: str) -> str:
 
 
 class CosmosPredict2Latent:
-    r"""Latent state for cosmos_predict2-backed pipelines."""
+    r"""Conditioning state for cosmos_predict2-backed generation."""
 
     __slots__ = ("latent", "last_frame", "text_emb", "neg_text_emb")
 
@@ -73,12 +86,14 @@ class CosmosPredict2Latent:
         return self.latent.element_size()
 
 
-class CosmosPredict2Pipeline:
-    r"""Video diffusion pipeline driving cosmos_predict2 for inference.
+class CosmosPredict2Pipeline(VideoGenerator):
+    r"""Video generator driving cosmos_predict2 for inference.
 
-    Composed by adapters (cosmos, dreamdojo). The pipeline owns model loading,
-    text/image encoding, denoising, and VAE decode. Adapters own action encoding,
-    stage-level orchestration, and per-step extras (e.g. DreamDojo joint vectors).
+    Args:
+        experiment: cosmos_predict2 experiment config name.
+        config_file: cosmos_predict2 config module path.
+        ckpt_path: Optional explicit checkpoint; resolved by HF download on
+            `load()` when omitted.
     """
 
     LATENT_CH: int = 16
@@ -94,14 +109,22 @@ class CosmosPredict2Pipeline:
         "and flickering. Overall, the video is of poor quality."
     )
 
-    def __init__(self, *, experiment: str, config_file: str) -> None:
+    def __init__(
+        self,
+        *,
+        experiment: str = DEFAULT_COSMOS_EXPERIMENT,
+        config_file: str = DEFAULT_COSMOS_CONFIG,
+        ckpt_path: str | None = None,
+    ) -> None:
         self.experiment = experiment
         self.config_file = config_file
+        self.ckpt_path = ckpt_path
         self.device: str = "cpu"
         self.dtype: torch.dtype = torch.float32
         self._model: Any = None
         self._neg_text_emb: torch.Tensor | None = None
         self._loaded = False
+        self._stub_text_emb_dim: int = 0
 
     @property
     def is_loaded(self) -> bool:
@@ -111,24 +134,49 @@ class CosmosPredict2Pipeline:
     def neg_text_emb(self) -> torch.Tensor | None:
         return self._neg_text_emb
 
-    def load(self, device: str, dtype: torch.dtype, ckpt_path: str) -> None:
-        r"""Load model weights and prepare the pipeline for inference."""
-        from worldkernels.worlds.pipelines.cosmos_predict2.deps import ensure_cosmos_predict2
+    def load(self, device: str, dtype: torch.dtype, ckpt_path: str | None = None) -> None:
+        r"""Load model weights and prepare the pipeline for inference.
+
+        ``ckpt_path`` may be passed explicitly (used by DreamDojo); otherwise
+        the checkpoint is resolved from the configured path or downloaded.
+        """
+        from worldkernels.models.cosmos_predict2.deps import ensure_cosmos_predict2
 
         ensure_cosmos_predict2()
 
         self.device = device
         self.dtype = dtype
 
-        log.info("Loading model (experiment=%s)", self.experiment)
-        self._model = self._load_model(self.experiment, ckpt_path, self.config_file)
+        ckpt = ckpt_path or self.ckpt_path
+        if ckpt is not None:
+            experiment, config_file = self.experiment, self.config_file
+        else:
+            ckpt, experiment, config_file = self._resolve_default_checkpoint()
+
+        log.info("Loading model (experiment=%s)", experiment)
+        self._model = self._load_model(experiment, ckpt, config_file)
         self._neg_text_emb = self.encode_text(self.NEGATIVE_PROMPT)
         self._loaded = True
         log.info(
             "CosmosPredict2 pipeline loaded on %s (%.1f GB VRAM)",
             device,
-            torch.cuda.memory_allocated() / 1e9,
+            torch.cuda.memory_allocated() / 1e9 if torch.cuda.is_available() else 0.0,
         )
+
+    def _resolve_default_checkpoint(self) -> tuple[str, str, str]:
+        r"""Resolve checkpoint + experiment + config, falling back to DreamDojo pretrain."""
+        try:
+            log.info("Downloading Cosmos-Predict2.5-2B checkpoint...")
+            ckpt = _download_hf_file(COSMOS_HF_REPO, COSMOS_CKPT_FILE)
+            return ckpt, self.experiment, self.config_file
+        except Exception as exc:
+            log.info(
+                "Cosmos-Predict2.5-2B unavailable (%s); falling back to DreamDojo pretrain",
+                exc.__class__.__name__,
+            )
+            from worldkernels.models.dreamdojo.checkpoint import download_dreamdojo_checkpoint
+
+            return download_dreamdojo_checkpoint(), FALLBACK_EXPERIMENT, FALLBACK_CONFIG
 
     def _load_model(self, experiment: str, ckpt_path: str, config_file: str) -> Any:
         from cosmos_predict2._src.imaginaire.lazy_config import instantiate
@@ -152,8 +200,14 @@ class CosmosPredict2Pipeline:
         config.model.config.ema.enabled = False
         config.model.config.fsdp_shard_size = 1
 
+        stub_text_encoder = bool(os.environ.get("WK_STUB_TEXT_ENCODER"))
+        if stub_text_encoder:
+            self._stub_text_emb_dim = config.model.config.net.crossattn_proj_in_channels
+            config.model.config.text_encoder_config = None
+
         self._patch_tokenizer_path()
-        self._patch_text_encoder_paths()
+        if not stub_text_encoder:
+            self._patch_text_encoder_paths()
 
         config.validate()
         config.freeze()
@@ -213,8 +267,17 @@ class CosmosPredict2Pipeline:
 
         proc_mod.Processor.__init__ = _patched_proc
 
+    def _stub_text_emb(self, prompt: str, *, seq_len: int = 16) -> torch.Tensor:
+        r"""Deterministic synthetic text embedding for text-encoder-free capture."""
+        seed = int.from_bytes(hashlib.sha256(prompt.encode()).digest()[:4], "big")
+        gen = torch.Generator(device="cpu").manual_seed(seed)
+        emb = torch.randn(1, seq_len, self._stub_text_emb_dim, generator=gen)
+        return emb.to(device=self.device, dtype=self.dtype)
+
     def encode_text(self, prompt: str) -> torch.Tensor:
-        r"""Compute text embedding for ``prompt``."""
+        r"""Compute the text embedding for ``prompt``."""
+        if os.environ.get("WK_STUB_TEXT_ENCODER"):
+            return self._stub_text_emb(prompt)
         if self._model is not None and getattr(self._model, "text_encoder", None) is not None:
             emb = self._model.text_encoder.compute_text_embeddings_online(
                 data_batch={"ai_caption": [prompt], "images": None},
@@ -228,7 +291,7 @@ class CosmosPredict2Pipeline:
     def encode_image(
         self, image: Any, *, height: int, width: int, frames_per_step: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Encode an initial image into (last_frame, latent)."""
+        r"""Encode an initial image into ``(last_frame, latent)``."""
         import torchvision.transforms.functional as TF
 
         if isinstance(image, str):
@@ -260,20 +323,14 @@ class CosmosPredict2Pipeline:
     def create_initial_latent(
         self, *, height: int, width: int, frames_per_step: int, seed: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Create a random initial (latent, last_frame) pair."""
+        r"""Create a random initial ``(latent, last_frame)`` pair."""
         gen_device = "cpu" if self.device == "cpu" else self.device
         gen = torch.Generator(device=gen_device).manual_seed(seed)
         lh, lw = height // self.SPATIAL_FACTOR, width // self.SPATIAL_FACTOR
         latent_t = self._model.tokenizer.get_latent_num_frames(frames_per_step + 1)
         latent = torch.randn(
-            1,
-            self.LATENT_CH,
-            latent_t,
-            lh,
-            lw,
-            generator=gen,
-            dtype=self.dtype,
-            device=self.device,
+            1, self.LATENT_CH, latent_t, lh, lw,
+            generator=gen, dtype=self.dtype, device=self.device,
         )
         last_frame = torch.zeros(1, 3, height, width, dtype=self.dtype, device=self.device)
         return latent, last_frame
@@ -288,7 +345,7 @@ class CosmosPredict2Pipeline:
         frames_per_step: int,
         seed: int,
     ) -> CosmosPredict2Latent:
-        r"""Build a fresh ``CosmosPredict2Latent`` from prompt and optional image."""
+        r"""Build a fresh ``CosmosPredict2Latent`` from a prompt and optional image."""
         text_emb = self.encode_text(prompt)
         if initial_image is not None:
             last_frame, latent = self.encode_image(
@@ -309,7 +366,7 @@ class CosmosPredict2Pipeline:
         seed: int = 1,
         extras: Mapping[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Run the full denoising loop. Returns ``(new_latent, new_last_frame)``."""
+        r"""Run the full denoising loop. Returns ``(latent, video)`` (video in ``[-1, 1]``)."""
         data_batch = self._build_data_batch(state, extras=extras)
 
         with torch.no_grad():
@@ -322,9 +379,7 @@ class CosmosPredict2Pipeline:
                 num_steps=num_steps,
             )
             video = self._model.decode(latent)
-
-        last_frame = ((video + 1.0) * 0.5)[0, :, -1].clamp(0, 1)
-        return latent, last_frame
+        return latent, video
 
     def decode(self, latent: torch.Tensor) -> torch.Tensor:
         r"""VAE-decode a latent tensor to a video tensor in ``[-1, 1]``."""
@@ -339,7 +394,7 @@ class CosmosPredict2Pipeline:
         frames_per_step: int,
         extras: Mapping[str, torch.Tensor] | None = None,
     ) -> None:
-        r"""Run a single-step denoise to warm caches and JIT compile."""
+        r"""Run a single-step denoise to warm caches and JIT-compile."""
         if not self._loaded:
             return
         state = self.create_initial_state(
@@ -352,15 +407,15 @@ class CosmosPredict2Pipeline:
         )
         _ = self.denoise(state, num_steps=1, guidance=1.0, seed=0, extras=extras)
 
-    def _build_data_batch(  # noqa: E501
+    def _build_data_batch(
         self,
         state: CosmosPredict2Latent,
         *,
         extras: Mapping[str, torch.Tensor] | None = None,
     ) -> dict[str, Any]:
-        last_frame = (
-            state.last_frame.unsqueeze(0) if state.last_frame.ndim == 3 else state.last_frame
-        )
+        last_frame = state.last_frame
+        if last_frame.ndim == 3:
+            last_frame = last_frame.unsqueeze(0)
         H, W = last_frame.shape[-2], last_frame.shape[-1]
         num_frames = self._model.tokenizer.get_pixel_num_frames(self._model.config.state_t)
         vid = torch.zeros(1, 3, num_frames, H, W, device=self.device, dtype=self.dtype)
@@ -390,3 +445,61 @@ class CosmosPredict2Pipeline:
         latent_bytes = self.LATENT_CH * ((num_frames + 3) // 4) * lh * lw * 2
         decode_bytes = 3 * height * width * num_frames * 4
         return (latent_bytes + decode_bytes) / (1024 * 1024) * 2.0 + 512.0
+
+    # ---- VideoGenerator contract -----------------------------------------
+
+    def encode_prompt(self, prompt: str) -> torch.Tensor:
+        return self.encode_text(prompt)
+
+    def initial_conditioning(
+        self,
+        *,
+        prompt: str,
+        negative_prompt: str,
+        image: Any | None,
+        height: int,
+        width: int,
+        frames_per_step: int,
+        seed: int,
+    ) -> CosmosPredict2Latent:
+        return self.create_initial_state(
+            prompt=prompt,
+            initial_image=image,
+            height=height,
+            width=width,
+            frames_per_step=frames_per_step,
+            seed=seed,
+        )
+
+    def apply_prompt(
+        self, conditioning: CosmosPredict2Latent, prompt_embeds: torch.Tensor
+    ) -> CosmosPredict2Latent:
+        return CosmosPredict2Latent(
+            conditioning.latent, conditioning.last_frame, prompt_embeds, conditioning.neg_text_emb
+        )
+
+    def generate(
+        self,
+        conditioning: CosmosPredict2Latent,
+        *,
+        num_steps: int,
+        guidance: float,
+        num_frames: int,
+        seed: int,
+    ) -> GenerationResult:
+        latent, video = self.denoise(
+            conditioning, num_steps=num_steps, guidance=guidance, seed=seed
+        )
+        return GenerationResult(latent=latent, video=video)
+
+    def advance(
+        self, conditioning: CosmosPredict2Latent, next_image: torch.Tensor
+    ) -> CosmosPredict2Latent:
+        return CosmosPredict2Latent(
+            conditioning.latent, next_image, conditioning.text_emb, conditioning.neg_text_emb
+        )
+
+    def profile_vram(self, *, height: int, width: int, num_frames: int) -> float:
+        return self.estimate_latent_vram_mb(
+            height=height, width=width, frames_per_step=num_frames
+        )

@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from worldkernels.worlds.pipelines.cosmos_predict2.pipeline import (
+from worldkernels.models.cosmos_predict2.pipeline import (
     CosmosPredict2Latent,
     CosmosPredict2Pipeline,
     _download_hf_file,
@@ -158,10 +158,10 @@ class TestDenoiseAndDecode:
         p._model.decode.return_value = sample_video
 
         cs = _make_latent()
-        new_latent, last_frame = p.denoise(cs, num_steps=3, guidance=1.2, seed=99)
+        new_latent, video = p.denoise(cs, num_steps=3, guidance=1.2, seed=99)
 
         assert new_latent is sample_latent
-        assert last_frame.shape == (3, 64, 64)
+        assert video is sample_video
         kwargs = p._model.generate_samples_from_batch.call_args.kwargs
         assert kwargs["guidance"] == 1.2
         assert kwargs["seed"] == 99
@@ -272,12 +272,14 @@ class TestLoadShortCircuit:
     def test_load_invokes_ensure_and_load_model(self, monkeypatch):
         p = CosmosPredict2Pipeline(experiment="e", config_file="c")
         monkeypatch.setattr(
-            "worldkernels.worlds.pipelines.cosmos_predict2.deps.ensure_cosmos_predict2",
+            "worldkernels.models.cosmos_predict2.deps.ensure_cosmos_predict2",
             lambda: None,
         )
         monkeypatch.setattr(p, "_load_model", lambda *a, **kw: MagicMock())
         monkeypatch.setattr(p, "encode_text", lambda prompt: torch.zeros(1, 4, 4))
-        monkeypatch.setattr("torch.cuda.memory_allocated", lambda *a, **kw: 0, raising=False)
+        monkeypatch.setattr(
+            "torch.cuda.memory_allocated", lambda *a, **kw: 0, raising=False
+        )
         p.load("cpu", torch.float32, "/fake/ckpt")
         assert p.is_loaded is True
         assert p._neg_text_emb is not None
@@ -331,9 +333,8 @@ class TestCreateInitialState:
 
 
 @pytest.mark.skipif(
-    pytest.importorskip.__module__
-    and __import__("importlib").util.find_spec("torchvision") is None,
-    reason="torchvision required by encode_image",  # noqa: E501
+    pytest.importorskip.__module__ and __import__("importlib").util.find_spec("torchvision") is None,  # noqa: E501
+    reason="torchvision required by encode_image",
 )
 class TestEncodeImage:
     def _pipeline(self):
@@ -381,12 +382,7 @@ class TestEncodeTextRouting:
         p.device = "cpu"
         p.dtype = torch.float32
         text_encoder = MagicMock()
-        text_encoder.compute_text_embeddings_online.return_value = torch.ones(
-            1,
-            4,
-            8,
-            dtype=torch.float32,  # noqa: E501
-        )
+        text_encoder.compute_text_embeddings_online.return_value = torch.ones(1, 4, 8, dtype=torch.float32)  # noqa: E501
         p._model = MagicMock()
         p._model.text_encoder = text_encoder
         out = p.encode_text("hello")
@@ -407,7 +403,9 @@ class TestEncodeTextRouting:
         src = types.ModuleType("cosmos_predict2._src")
         predict2 = types.ModuleType("cosmos_predict2._src.predict2")
         inference = types.ModuleType("cosmos_predict2._src.predict2.inference")
-        get_t5_emb_mod = types.ModuleType("cosmos_predict2._src.predict2.inference.get_t5_emb")
+        get_t5_emb_mod = types.ModuleType(
+            "cosmos_predict2._src.predict2.inference.get_t5_emb"
+        )
 
         def fake_get_text_embedding(prompt):
             assert prompt == "hello"
@@ -422,7 +420,9 @@ class TestEncodeTextRouting:
         monkeypatch.setitem(sys.modules, "cosmos_predict2", cosmos)
         monkeypatch.setitem(sys.modules, "cosmos_predict2._src", src)
         monkeypatch.setitem(sys.modules, "cosmos_predict2._src.predict2", predict2)
-        monkeypatch.setitem(sys.modules, "cosmos_predict2._src.predict2.inference", inference)
+        monkeypatch.setitem(
+            sys.modules, "cosmos_predict2._src.predict2.inference", inference
+        )
         monkeypatch.setitem(
             sys.modules,
             "cosmos_predict2._src.predict2.inference.get_t5_emb",
@@ -433,8 +433,53 @@ class TestEncodeTextRouting:
         assert out.shape == (1, 4, 8)
 
 
+class TestStubTextEncoder:
+    r"""Text-encoder-free capture path (WK_STUB_TEXT_ENCODER)."""
+
+    def _pipeline(self, dim: int = 16) -> CosmosPredict2Pipeline:
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c")
+        p.device = "cpu"
+        p.dtype = torch.float32
+        p._stub_text_emb_dim = dim
+        return p
+
+    def test_stub_emb_shape_and_dtype(self):
+        emb = self._pipeline(dim=32)._stub_text_emb("a robot picks up a block")
+        assert emb.shape == (1, 16, 32)
+        assert emb.dtype == torch.float32
+
+    def test_stub_emb_deterministic(self):
+        p = self._pipeline()
+        assert torch.equal(p._stub_text_emb("hello"), p._stub_text_emb("hello"))
+
+    def test_stub_emb_prompt_sensitive(self):
+        p = self._pipeline()
+        assert not torch.equal(p._stub_text_emb("hello"), p._stub_text_emb("world"))
+
+    def test_encode_text_routes_to_stub(self, monkeypatch):
+        monkeypatch.setenv("WK_STUB_TEXT_ENCODER", "1")
+        p = self._pipeline(dim=12)
+        p._model = MagicMock()
+        emb = p.encode_text("some prompt")
+        assert emb.shape == (1, 16, 12)
+        p._model.text_encoder.compute_text_embeddings_online.assert_not_called()
+
+    def test_encode_text_skips_stub_when_unset(self, monkeypatch):
+        monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
+        p = self._pipeline()
+        text_encoder = MagicMock()
+        text_encoder.compute_text_embeddings_online.return_value = torch.ones(
+            1, 4, 8, dtype=torch.float32
+        )
+        p._model = MagicMock()
+        p._model.text_encoder = text_encoder
+        out = p.encode_text("hello")
+        assert out.shape == (1, 4, 8)
+
+
 class TestDownloadHelper:
     def test_calls_hf_hub_download(self, monkeypatch):
+
         fake = MagicMock(return_value="/path")
         monkeypatch.setattr("huggingface_hub.hf_hub_download", fake, raising=False)
         assert _download_hf_file("repo", "file.bin") == "/path"

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from worldkernels.worlds.pipelines.cosmos_predict2 import deps
+from worldkernels.models.cosmos_predict2 import deps
 
 
 @pytest.fixture(autouse=True)
@@ -157,11 +157,7 @@ class TestFindCosmosPredict2:
         r"""Force every candidate to be a fresh empty dir, ensuring None."""
         monkeypatch.setattr(
             "os.environ.get",
-            lambda key, default="": (
-                str(tmp_path / "empty_env")  # noqa: E501
-                if key == "COSMOS_PREDICT2_PATH"
-                else default
-            ),
+            lambda key, default="": str(tmp_path / "empty_env") if key == "COSMOS_PREDICT2_PATH" else default,  # noqa: E501
         )
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty_home")
         monkeypatch.setattr(
@@ -225,11 +221,9 @@ class TestEnsureCosmosPredict2:
         assert called == []
 
     def test_existing_import_short_circuits_search(self, monkeypatch):
-        deps._setup_done = False  # noqa: E501
+        deps._setup_done = False
         sys.modules["cosmos_predict2"] = types.ModuleType("cosmos_predict2")
-        monkeypatch.setattr(
-            deps, "_find_cosmos_predict2", lambda: pytest.fail("must not be called")
-        )
+        monkeypatch.setattr(deps, "_find_cosmos_predict2", lambda: pytest.fail("must not be called"))  # noqa: E501
         deps.ensure_cosmos_predict2()
         assert deps._setup_done is True
 

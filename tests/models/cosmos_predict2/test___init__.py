@@ -8,9 +8,9 @@ import pytest
 
 
 def test_lazy_exports():
-    mod = importlib.import_module("worldkernels.worlds.pipelines.cosmos_predict2")
-    from worldkernels.worlds.pipelines.cosmos_predict2.deps import ensure_cosmos_predict2
-    from worldkernels.worlds.pipelines.cosmos_predict2.pipeline import (
+    mod = importlib.import_module("worldkernels.models.cosmos_predict2")
+    from worldkernels.models.cosmos_predict2.deps import ensure_cosmos_predict2
+    from worldkernels.models.cosmos_predict2.pipeline import (
         CosmosPredict2Latent,
         CosmosPredict2Pipeline,
     )
@@ -21,6 +21,6 @@ def test_lazy_exports():
 
 
 def test_unknown_attribute_raises():
-    mod = importlib.import_module("worldkernels.worlds.pipelines.cosmos_predict2")
+    mod = importlib.import_module("worldkernels.models.cosmos_predict2")
     with pytest.raises(AttributeError):
         mod.nope

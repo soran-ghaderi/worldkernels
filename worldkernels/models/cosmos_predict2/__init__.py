@@ -1,9 +1,8 @@
 r"""Pipeline backed by NVIDIA's cosmos_predict2 package.
 
 Wraps cosmos_predict2 for inference: dep-stub injection, package location, and
-a pipeline that drives model loading, denoising, and VAE decode. Composed by
-the cosmos and dreamdojo adapters until Phase 5 lands a native pipeline at
-``worldkernels.worlds.pipelines.video_diffusion``.
+a pipeline that drives model loading, denoising, and VAE decode. Lives under
+``worldkernels.models`` as one model family alongside ``wan``.
 """
 
 import importlib as _importlib
@@ -14,19 +13,13 @@ __all__ = [
     "ensure_cosmos_predict2",
 ]
 
+_PIPELINE = "worldkernels.models.cosmos_predict2.pipeline"
+_DEPS = "worldkernels.models.cosmos_predict2.deps"
+
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
-    "CosmosPredict2Latent": (  # noqa: E501
-        "worldkernels.worlds.pipelines.cosmos_predict2.pipeline",
-        "CosmosPredict2Latent",
-    ),
-    "CosmosPredict2Pipeline": (
-        "worldkernels.worlds.pipelines.cosmos_predict2.pipeline",  # noqa: E501
-        "CosmosPredict2Pipeline",
-    ),
-    "ensure_cosmos_predict2": (
-        "worldkernels.worlds.pipelines.cosmos_predict2.deps",
-        "ensure_cosmos_predict2",
-    ),
+    "CosmosPredict2Latent": (_PIPELINE, "CosmosPredict2Latent"),
+    "CosmosPredict2Pipeline": (_PIPELINE, "CosmosPredict2Pipeline"),
+    "ensure_cosmos_predict2": (_DEPS, "ensure_cosmos_predict2"),
 }
 
 
