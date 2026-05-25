@@ -157,9 +157,11 @@ class TestFindCosmosPredict2:
         r"""Force every candidate to be a fresh empty dir, ensuring None."""
         monkeypatch.setattr(
             "os.environ.get",
-            lambda key, default="": str(tmp_path / "empty_env")  # noqa: E501
-            if key == "COSMOS_PREDICT2_PATH"
-            else default,
+            lambda key, default="": (
+                str(tmp_path / "empty_env")  # noqa: E501
+                if key == "COSMOS_PREDICT2_PATH"
+                else default
+            ),
         )
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty_home")
         monkeypatch.setattr(
