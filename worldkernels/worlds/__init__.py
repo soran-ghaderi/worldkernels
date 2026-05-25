@@ -1,10 +1,21 @@
-r"""World model interface, registry, and adapters."""
+r"""World-model taxonomy, registry, and hub."""
 
 import importlib as _importlib
 
-__all__ = ["AbstractWorld", "get_world_class", "list_worlds", "register_world"]
+__all__ = [
+    "WorldModel",
+    "InteractiveWorldModel",
+    "GeneratorWorld",
+    "AbstractWorld",
+    "get_world_class",
+    "list_worlds",
+    "register_world",
+]
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "WorldModel": ("worldkernels.worlds.base", "WorldModel"),
+    "InteractiveWorldModel": ("worldkernels.worlds.base", "InteractiveWorldModel"),
+    "GeneratorWorld": ("worldkernels.worlds.base", "GeneratorWorld"),
     "AbstractWorld": ("worldkernels.worlds.base", "AbstractWorld"),
     "get_world_class": ("worldkernels.worlds.registry", "get_world_class"),
     "list_worlds": ("worldkernels.worlds.registry", "list_worlds"),
