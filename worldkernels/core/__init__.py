@@ -1,8 +1,7 @@
-"""Core kernel: engine, session lifecycle, data types, and error hierarchy."""
+"""Core data types: session lifecycle, action, observation, error hierarchy."""
 
 from worldkernels.core.action import Action
 from worldkernels.core.config import ServerConfig, WorldConfig
-from worldkernels.core.engine import WorldKernel
 from worldkernels.core.errors import (
     CheckpointNotFoundError,
     SessionLimitError,
@@ -34,7 +33,6 @@ __all__ = [
     "WorldAlreadyLoadedError",
     "WorldConfig",
     "WorldInitError",
-    "WorldKernel",
     "WorldKernelError",
     "WorldNotFoundError",
 ]

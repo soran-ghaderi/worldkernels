@@ -9,7 +9,7 @@ except ImportError:
     __version_tuple__ = (0, 1, 0, "dev0")
 
 __all__ = [
-    "WorldKernel",
+    "WorldEngine",
     "Session",
     "SessionStatus",
     "LatentState",
@@ -40,7 +40,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "Action": ("worldkernels.core.action", "Action"),
     "WorldConfig": ("worldkernels.core.config", "WorldConfig"),
     "ServerConfig": ("worldkernels.core.config", "ServerConfig"),
-    "WorldKernel": ("worldkernels.core.engine", "WorldKernel"),
+    "WorldEngine": ("worldkernels.engine", "WorldEngine"),
     "Observation": ("worldkernels.core.observation", "Observation"),
     "Session": ("worldkernels.core.session", "Session"),
     "SessionStatus": ("worldkernels.core.session", "SessionStatus"),

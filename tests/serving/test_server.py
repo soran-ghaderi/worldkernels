@@ -33,9 +33,9 @@ class TestCreateApp:
         assert app.version == "0.1.0"
 
     def test_engine_attached_to_state(self, app):
-        from worldkernels.core.engine import WorldKernel
+        from worldkernels.engine import WorldEngine
 
-        assert isinstance(app.state.engine, WorldKernel)
+        assert isinstance(app.state.engine, WorldEngine)
 
     def test_default_config_used_when_none(self):
         a = create_app(None, device="cpu")
@@ -58,9 +58,6 @@ class TestAuth:
         r = TestClient(app_with_auth).get("/health")
         assert r.status_code == 200
 
-    @pytest.mark.xfail(
-        reason="routes.configure_routes builds an auth dep but never attaches it to the router"
-    )
     def test_protected_route_requires_key(self, app_with_auth):
         r = TestClient(app_with_auth).get("/v1/worlds")
         assert r.status_code == 401

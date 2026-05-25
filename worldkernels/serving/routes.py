@@ -1,18 +1,23 @@
-r"""REST API routes for WorldKernels serving layer."""
+r"""REST API routes for the WorldKernels serving layer.
+
+Routes are bound to an `AsyncEngine`: model loading, session creation,
+and stepping go through its async, continuous-batching API; cheap registry
+reads touch the underlying `WorldEngine` directly.
+"""
 
 from __future__ import annotations
 
-import asyncio
 import base64
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from worldkernels.core.config import WorldConfig
-from worldkernels.core.engine import WorldKernel
+from worldkernels.config import WorldConfig
 from worldkernels.core.errors import (
     SessionLimitError,
+    SessionNotFoundError,
+    SessionPausedError,
     SessionTerminatedError,
     VRAMExhaustedError,
     WorldAlreadyLoadedError,
@@ -20,32 +25,27 @@ from worldkernels.core.errors import (
     WorldKernelError,
     WorldNotFoundError,
 )
+from worldkernels.serving.websocket import register_websocket_routes
+
+if TYPE_CHECKING:
+    from worldkernels.engine.async_engine import AsyncEngine
 
 router = APIRouter(prefix="/v1")
 
 
-def _engine() -> WorldKernel:
-    raise RuntimeError("Engine dependency not configured.")
+def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRouter:
+    r"""Bind an `AsyncEngine` and optional auth to the router."""
+    engine = async_engine.engine
+    deps = [Depends(auth_dep)] if auth_dep is not None else []
 
-
-def configure_routes(engine: WorldKernel, auth_dep: Any = None) -> APIRouter:
-    r"""Bind the engine instance and optional auth to the router."""
-
-    deps = [Depends(lambda: engine)]
-    if auth_dep is not None:
-        deps.append(Depends(auth_dep))
-
-    router.dependency_overrides_provider = None  # type: ignore[attr-defined]
-
-    @router.get("/worlds", tags=["worlds"])
+    @router.get("/worlds", tags=["worlds"], dependencies=deps)
     async def list_worlds() -> dict[str, Any]:
         return {"worlds": engine.list_worlds()}
 
-    @router.post("/worlds", tags=["worlds"], status_code=201)
+    @router.post("/worlds", tags=["worlds"], status_code=201, dependencies=deps)
     async def load_model(req: LoadModelRequest) -> dict[str, str]:
         try:
-            await asyncio.to_thread(
-                engine.load_model,
+            await async_engine.load_model(
                 req.model_id,
                 alias=req.alias,
                 trust_remote_code=req.trust_remote_code,
@@ -57,27 +57,26 @@ def configure_routes(engine: WorldKernel, auth_dep: Any = None) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc))
         except WorldInitError as exc:
             raise HTTPException(status_code=500, detail=str(exc))
-        key = req.alias or req.model_id.split("/")[-1]
-        return {"status": "loaded", "world": key}
+        return {"status": "loaded", "world": req.alias or req.model_id.split("/")[-1]}
 
-    @router.delete("/worlds/{world_id}", tags=["worlds"])
+    @router.delete("/worlds/{world_id}", tags=["worlds"], dependencies=deps)
     async def unload_model(world_id: str) -> dict[str, str]:
         try:
-            engine.unload_model(world_id)
+            await async_engine.unload_model(world_id)
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         return {"status": "unloaded", "world": world_id}
 
-    @router.get("/sessions", tags=["sessions"])
+    @router.get("/sessions", tags=["sessions"], dependencies=deps)
     async def list_sessions() -> dict[str, Any]:
-        sessions = []
-        for sid in engine.list_sessions():
-            sess = engine.get_session(sid)
-            if sess is not None:
-                sessions.append(_session_summary(sess))
-        return {"sessions": sessions}
+        summaries = [
+            _session_summary(engine.get_session(sid))
+            for sid in engine.list_sessions()
+            if engine.get_session(sid) is not None
+        ]
+        return {"sessions": summaries}
 
-    @router.post("/sessions", tags=["sessions"], status_code=201)
+    @router.post("/sessions", tags=["sessions"], status_code=201, dependencies=deps)
     async def create_session(req: CreateSessionRequest) -> dict[str, Any]:
         config = WorldConfig(
             height=req.height,
@@ -89,9 +88,7 @@ def configure_routes(engine: WorldKernel, auth_dep: Any = None) -> APIRouter:
             initial_prompt=req.initial_prompt,
         )
         try:
-            sess = await asyncio.to_thread(
-                engine.create_session, req.world, config=config, seed=req.seed
-            )
+            sess = await async_engine.create_session(req.world, config=config, seed=req.seed)
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         except SessionLimitError as exc:
@@ -100,71 +97,63 @@ def configure_routes(engine: WorldKernel, auth_dep: Any = None) -> APIRouter:
             raise HTTPException(status_code=507, detail=str(exc))
         return _session_summary(sess)
 
-    @router.get("/sessions/{session_id}", tags=["sessions"])
+    @router.get("/sessions/{session_id}", tags=["sessions"], dependencies=deps)
     async def get_session(session_id: str) -> dict[str, Any]:
-        sess = engine.get_session(session_id)
-        if sess is None:
-            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
-        return _session_summary(sess)
+        return _session_summary(_require_session(engine, session_id))
 
-    @router.delete("/sessions/{session_id}", tags=["sessions"])
+    @router.delete("/sessions/{session_id}", tags=["sessions"], dependencies=deps)
     async def delete_session(session_id: str) -> dict[str, str]:
-        sess = engine.get_session(session_id)
-        if sess is None:
-            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
-        engine.close_session(session_id)
+        _require_session(engine, session_id)
+        await async_engine.close_session(session_id)
         return {"status": "terminated", "session_id": session_id}
 
-    @router.post("/sessions/{session_id}/step", tags=["sessions"])
+    @router.post("/sessions/{session_id}/step", tags=["sessions"], dependencies=deps)
     async def step(session_id: str, req: StepRequest) -> dict[str, Any]:
         from worldkernels.core.action import Action
 
-        sess = engine.get_session(session_id)
-        if sess is None:
-            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
         action = Action(action_type=req.action_type, payload=req.payload)
         try:
-            obs = await asyncio.to_thread(
-                sess.step, action, modalities=req.modalities, decode=req.decode
+            obs = await async_engine.step(
+                session_id, action, modalities=req.modalities, decode=req.decode
             )
-        except SessionTerminatedError as exc:
+        except SessionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except (SessionTerminatedError, SessionPausedError) as exc:
             raise HTTPException(status_code=410, detail=str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
         except WorldKernelError as exc:
             raise HTTPException(status_code=500, detail=str(exc))
-        return _observation_to_dict(obs, session_id, sess.step_index)
+        return _observation_to_dict(obs, session_id)
 
-    @router.post("/sessions/{session_id}/checkpoint", tags=["sessions"])
+    @router.post("/sessions/{session_id}/checkpoint", tags=["sessions"], dependencies=deps)
     async def checkpoint(session_id: str) -> dict[str, str]:
-        sess = engine.get_session(session_id)
-        if sess is None:
-            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
-        ckpt_id = sess.checkpoint()
-        return {"checkpoint_id": ckpt_id, "session_id": session_id}
+        sess = _require_session(engine, session_id)
+        return {"checkpoint_id": sess.checkpoint(), "session_id": session_id}
 
-    @router.post("/sessions/{session_id}/restore", tags=["sessions"])
+    @router.post("/sessions/{session_id}/restore", tags=["sessions"], dependencies=deps)
     async def restore(session_id: str, req: RestoreRequest) -> dict[str, str]:
-        sess = engine.get_session(session_id)
-        if sess is None:
-            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+        sess = _require_session(engine, session_id)
         try:
             sess.restore(req.checkpoint_id)
         except WorldKernelError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         return {"status": "restored", "checkpoint_id": req.checkpoint_id}
 
-    @router.post("/sessions/{session_id}/branch", tags=["sessions"], status_code=201)
+    @router.post(
+        "/sessions/{session_id}/branch", tags=["sessions"], status_code=201, dependencies=deps
+    )
     async def branch(session_id: str) -> dict[str, Any]:
-        sess = engine.get_session(session_id)
-        if sess is None:
-            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+        sess = _require_session(engine, session_id)
         branched = sess.branch()
         engine._sessions[branched.session_id] = branched
         return _session_summary(branched)
 
+    register_websocket_routes(router, async_engine)
     return router
 
 
-# ---- request / response models -------------------------------------------
+# ---- request models ------------------------------------------------------
 
 
 class LoadModelRequest(BaseModel):
@@ -200,6 +189,13 @@ class RestoreRequest(BaseModel):
 # ---- helpers --------------------------------------------------------------
 
 
+def _require_session(engine: Any, session_id: str) -> Any:
+    sess = engine.get_session(session_id)
+    if sess is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    return sess
+
+
 def _session_summary(sess: Any) -> dict[str, Any]:
     return {
         "session_id": sess.session_id,
@@ -212,7 +208,7 @@ def _session_summary(sess: Any) -> dict[str, Any]:
     }
 
 
-def _observation_to_dict(obs: Any, session_id: str, step_index: int) -> dict[str, Any]:
+def _observation_to_dict(obs: Any, session_id: str) -> dict[str, Any]:
     result: dict[str, Any] = {
         "session_id": session_id,
         "step_index": obs.step_index,

@@ -12,11 +12,11 @@ from worldkernels.core.config import WorldConfig
 from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState
 from worldkernels.runtime.stages import StageExecMode, StageType, TransitionMode
-from worldkernels.worlds.base import AbstractWorld
+from worldkernels.worlds.base import WorldModel
 
 
-class MockWorld(AbstractWorld):
-    r"""Minimal CPU AbstractWorld for runtime/engine/session tests.
+class MockWorld(WorldModel):
+    r"""Minimal CPU WorldModel for runtime/engine/session tests.
 
     Records every method invocation so tests can verify the executor
     actually drove the stages in the right order.
@@ -72,7 +72,7 @@ class MockWorld(AbstractWorld):
             audio=b"\x00" if "audio" in modalities else None,
         )
 
-    def estimate_vram_mb(self, config: WorldConfig) -> float:
+    def profile_vram(self, config: WorldConfig) -> float:
         return float(config.height * config.width) / 1024.0
 
     def create_initial_state(self, config: WorldConfig, seed: int) -> LatentState:
@@ -106,7 +106,7 @@ class SlowMockWorld(MockWorld):
         return super().decode_observation(state, modalities)
 
 
-def register_mock_world(name: str = "mock", cls: type[AbstractWorld] = MockWorld) -> None:
+def register_mock_world(name: str = "mock", cls: type[WorldModel] = MockWorld) -> None:
     r"""Register a mock world into the global worlds registry for tests that
     need the full hub/registry resolution path."""
     from worldkernels.worlds import registry

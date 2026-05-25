@@ -19,8 +19,9 @@ from worldkernels.runtime.stages import (
 
 if TYPE_CHECKING:
     from worldkernels.core.action import Action
+    from worldkernels.core.request import StepRequest
     from worldkernels.core.session import LatentState
-    from worldkernels.worlds.base import AbstractWorld
+    from worldkernels.worlds.base import WorldModel
 
 
 class Executor:
@@ -56,7 +57,7 @@ class Executor:
     @torch.no_grad()
     def execute_encode(
         self,
-        world: AbstractWorld,
+        world: WorldModel,
         action: Action,
     ) -> StageOutput:
         r"""Stage 1: encode action to conditioning tensor."""
@@ -72,7 +73,7 @@ class Executor:
     @torch.no_grad()
     def execute_transition(
         self,
-        world: AbstractWorld,
+        world: WorldModel,
         state: LatentState,
         action_encoded: torch.Tensor,
     ) -> StageOutput:
@@ -94,7 +95,7 @@ class Executor:
     @torch.no_grad()
     def execute_decode(
         self,
-        world: AbstractWorld,
+        world: WorldModel,
         state: LatentState,
         modalities: list[str],
     ) -> StageOutput:
@@ -113,7 +114,7 @@ class Executor:
     @torch.no_grad()
     def step(
         self,
-        world: AbstractWorld,
+        world: WorldModel,
         state: LatentState,
         action: Action,
         modalities: list[str],
@@ -161,3 +162,26 @@ class Executor:
         obs.stage_timing = timing
 
         return new_state, obs
+
+    @torch.no_grad()
+    def execute_batched(
+        self,
+        requests: list[StepRequest],
+    ) -> list[tuple[LatentState, Observation]]:
+        r"""Execute a batch of step requests.
+
+        Currently iterates one request at a time; true batched forward passes
+        over a compatibility group land with the throughput step. The list
+        signature is the seam the scheduler dispatches into.
+        """
+        return [
+            self.step(
+                world=req.world,
+                state=req.state,
+                action=req.action,
+                modalities=req.modalities,
+                step_index=req.step_index,
+                decode=req.decode,
+            )
+            for req in requests
+        ]

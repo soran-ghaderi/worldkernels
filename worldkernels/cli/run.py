@@ -23,13 +23,13 @@ def run_session(
     prompt: str | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> None:
-    from worldkernels import Action, WorldConfig, WorldKernel
+    from worldkernels import Action, WorldConfig, WorldEngine
 
     valid_formats = ("frames", "video", "both")
     if output_format not in valid_formats:
         raise ValueError(f"--output-format must be one of {valid_formats}, got '{output_format}'")
 
-    wk = WorldKernel(device=device)
+    wk = WorldEngine(device=device)
     world_key = world.split("/")[-1]
     wk.load_model(world, **(model_kwargs or {}))
 

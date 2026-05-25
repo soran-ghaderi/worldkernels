@@ -1,4 +1,4 @@
-r"""Tests for worldkernels/core/engine.py."""
+r"""Tests for worldkernels/engine/world_engine.py."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import torch
 
 from tests._helpers.factories import make_world_config
 from tests._helpers.mocks import MockWorld, register_mock_world, unregister_world
-from worldkernels.core.engine import WorldKernel, _default_dtype
 from worldkernels.core.errors import (
     SessionLimitError,
     VRAMExhaustedError,
@@ -17,6 +16,8 @@ from worldkernels.core.errors import (
     WorldInitError,
     WorldNotFoundError,
 )
+from worldkernels.engine import WorldEngine
+from worldkernels.engine.world_engine import _default_dtype
 
 
 class TestDefaultDtype:
@@ -44,20 +45,20 @@ class TestDefaultDtype:
 
 class TestWorldKernelInit:
     def test_defaults(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             assert wk.device == "cpu"
             assert wk.max_sessions == 4
             assert wk.offload_idle is True
             assert wk.dtype == torch.float32
-            assert wk._executor is not None
+            assert wk._scheduler is not None
             assert wk.list_worlds() == []
             assert wk.list_sessions() == []
         finally:
             wk.shutdown()
 
     def test_overrides(self):
-        wk = WorldKernel(device="cpu", max_sessions=8, offload_idle=False)
+        wk = WorldEngine(device="cpu", max_sessions=8, offload_idle=False)
         try:
             assert wk.max_sessions == 8
             assert wk.offload_idle is False
@@ -67,7 +68,7 @@ class TestWorldKernelInit:
 
 class TestLoadModel:
     def test_load_dummy(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             assert "dummy" in wk.list_worlds()
@@ -75,7 +76,7 @@ class TestLoadModel:
             wk.shutdown()
 
     def test_load_unknown_raises(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             with pytest.raises(WorldNotFoundError):
                 wk.load_model("nonexistent_xyz")
@@ -83,7 +84,7 @@ class TestLoadModel:
             wk.shutdown()
 
     def test_load_with_alias(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy", alias="d1")
             assert "d1" in wk.list_worlds()
@@ -92,7 +93,7 @@ class TestLoadModel:
             wk.shutdown()
 
     def test_already_loaded_raises(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             with pytest.raises(WorldAlreadyLoadedError):
@@ -101,7 +102,7 @@ class TestLoadModel:
             wk.shutdown()
 
     def test_hf_repo_id_resolved_via_hub(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             register_mock_world("dreamdojo")
             try:
@@ -118,7 +119,7 @@ class TestLoadModel:
                 raise RuntimeError("boom")
 
         register_mock_world("_bad", BadWorld)
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             with pytest.raises(WorldInitError, match="boom"):
                 wk.load_model("_bad")
@@ -129,19 +130,19 @@ class TestLoadModel:
 
 class TestCreateSession:
     def test_creates_active(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             s = wk.create_session("dummy", config=make_world_config())
             assert s.world_id == "dummy"
             assert s.session_id in wk._sessions
             assert s._world is wk._worlds["dummy"]
-            assert s._executor is wk._executor
+            assert s._scheduler is wk._scheduler
         finally:
             wk.shutdown()
 
     def test_default_config(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             s = wk.create_session("dummy")
@@ -151,7 +152,7 @@ class TestCreateSession:
             wk.shutdown()
 
     def test_unknown_world_raises(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             with pytest.raises(WorldNotFoundError):
                 wk.create_session("nope")
@@ -159,7 +160,7 @@ class TestCreateSession:
             wk.shutdown()
 
     def test_session_limit(self):
-        wk = WorldKernel(device="cpu", max_sessions=2)
+        wk = WorldEngine(device="cpu", max_sessions=2)
         try:
             wk.load_model("dummy")
             cfg = make_world_config()
@@ -171,7 +172,7 @@ class TestCreateSession:
             wk.shutdown()
 
     def test_default_seed_is_zero(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             s = wk.create_session("dummy")
@@ -180,7 +181,7 @@ class TestCreateSession:
             wk.shutdown()
 
     def test_vram_check_raises(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             hungry = _HungryWorld()
             hungry.initialize("cpu", torch.float32)
@@ -196,7 +197,7 @@ class TestCreateSession:
             wk.shutdown()
 
     def test_vram_check_passes_when_enough_free(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             wk.device = "cuda:0"
@@ -213,20 +214,20 @@ class TestCreateSession:
 class _HungryWorld(MockWorld):
     name = "hungry"
 
-    def estimate_vram_mb(self, config):
+    def profile_vram(self, config):
         return 1e9
 
 
 class TestSessionManagement:
     def test_get_session_returns_none_for_unknown(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             assert wk.get_session("missing") is None
         finally:
             wk.shutdown()
 
     def test_get_session_returns_session(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             s = wk.create_session("dummy")
@@ -235,7 +236,7 @@ class TestSessionManagement:
             wk.shutdown()
 
     def test_close_session_terminates(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             s = wk.create_session("dummy")
@@ -248,14 +249,14 @@ class TestSessionManagement:
             wk.shutdown()
 
     def test_close_session_unknown_is_noop(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.close_session("missing")
         finally:
             wk.shutdown()
 
     def test_list_sessions(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             s1 = wk.create_session("dummy")
@@ -268,7 +269,7 @@ class TestSessionManagement:
 
 class TestUnloadModel:
     def test_unloads_and_closes_sessions(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             wk.load_model("dummy")
             s = wk.create_session("dummy")
@@ -279,7 +280,7 @@ class TestUnloadModel:
             wk.shutdown()
 
     def test_unload_unknown_raises(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         try:
             with pytest.raises(WorldNotFoundError):
                 wk.unload_model("ghost")
@@ -289,7 +290,7 @@ class TestUnloadModel:
 
 class TestShutdown:
     def test_shutdown_clears_state(self):
-        wk = WorldKernel(device="cpu")
+        wk = WorldEngine(device="cpu")
         wk.load_model("dummy")
         wk.create_session("dummy")
         wk.shutdown()

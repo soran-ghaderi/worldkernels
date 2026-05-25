@@ -11,7 +11,7 @@ os.environ["WORLDKERNELS_NO_AUTO_INSTALL"] = "1"
 
 from tests._helpers.factories import make_world_config  # noqa: E402
 from tests._helpers.mocks import MockWorld  # noqa: E402
-from worldkernels.core.engine import WorldKernel  # noqa: E402
+from worldkernels.engine import WorldEngine  # noqa: E402
 from worldkernels.worlds import (
     hub as _hub,  # noqa: E402
     registry as _registry,  # noqa: E402
@@ -44,7 +44,7 @@ def world_config():
 
 @pytest.fixture
 def engine():
-    wk = WorldKernel(device="cpu", max_sessions=4)
+    wk = WorldEngine(device="cpu", max_sessions=4)
     wk.load_model("dummy")
     yield wk
     wk.shutdown()

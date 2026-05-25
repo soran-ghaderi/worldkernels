@@ -114,7 +114,7 @@ class TestSessionDefaults:
 
 class TestSessionStepGuards:
     def _make(self, status: SessionStatus) -> Session:
-        s = Session(_world=MockWorld(), _executor=MagicMock())
+        s = Session(_world=MockWorld(), _scheduler=MagicMock())
         s.status = status
         return s
 
@@ -128,7 +128,7 @@ class TestSessionStepGuards:
         with pytest.raises(SessionPausedError):
             s.step(Action("null"))
 
-    def test_step_without_executor_or_world_raises(self):
+    def test_step_without_scheduler_or_world_raises(self):
         s = Session()
         with pytest.raises(RuntimeError, match="not bound"):
             s.step(Action("null"))

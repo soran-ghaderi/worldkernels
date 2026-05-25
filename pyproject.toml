@@ -78,8 +78,20 @@ cosmos = [
     "wandb>=0.15",
     "lerobot>=0.5",
 ]
+diffusion = [
+    "diffusers>=0.35",
+    "transformers>=4.49",
+    "torchvision>=0.15",
+    "accelerate>=0.25",
+    "sentencepiece>=0.2",
+    "ftfy>=6.0",
+    "Pillow>=9.0",
+]
+quant = [
+    "torchao>=0.5",
+]
 all = [
-    "worldkernels[cosmos]",
+    "worldkernels[cosmos,diffusion,quant]",
 ]
 dev = [
     "pytest>=7.0",
@@ -113,9 +125,9 @@ docs = [
 worldkernels = "worldkernels.cli.main:app"
 
 [project.entry-points."worldkernels.worlds"]
-dummy = "worldkernels.worlds.adapters.dummy:DummyWorld"
-dreamdojo = "worldkernels.worlds.adapters.dreamdojo:DreamDojoWorld"
-cosmos_predict2 = "worldkernels.worlds.adapters.cosmos:CosmosPredict2World"
+dummy = "worldkernels.worlds.dummy:DummyWorld"
+dreamdojo = "worldkernels.worlds.dreamdojo:DreamDojoWorld"
+generator_world = "worldkernels.worlds.base:GeneratorWorld"
 
 [project.urls]
 Homepage = "https://github.com/soran-ghaderi/worldkernels"
