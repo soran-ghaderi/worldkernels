@@ -1,9 +1,10 @@
-r"""DreamDojo action-conditioned world model adapter.
+r"""DreamDojo — an action-conditioned interactive world model.
 
-Wraps NVIDIA DreamDojo (2B/14B) — an action-conditioned video diffusion model
+Wraps NVIDIA DreamDojo (2B/14B), an action-conditioned video diffusion model
 built on Cosmos-Predict2.5. Actions are robot joint vectors. Composes
-:class:`CosmosPredict2Pipeline` and injects the action tensor as a per-step
-``extras`` field rather than overriding the pipeline.
+`CosmosPredict2Pipeline` and injects the action tensor as a per-step
+``extras`` field. A genuine `InteractiveWorldModel`:
+the transition is conditioned on the action, not open-loop resampling.
 """
 
 from __future__ import annotations
@@ -16,17 +17,14 @@ import torch
 
 from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState
+from worldkernels.models.cosmos_predict2 import CosmosPredict2Latent, CosmosPredict2Pipeline
+from worldkernels.models.dreamdojo.checkpoint import download_dreamdojo_checkpoint
 from worldkernels.runtime.stages import StageExecMode, StageType, TransitionMode
-from worldkernels.worlds.adapters.dreamdojo.checkpoint import download_dreamdojo_checkpoint
-from worldkernels.worlds.base import AbstractWorld
-from worldkernels.worlds.pipelines.cosmos_predict2 import (
-    CosmosPredict2Latent,
-    CosmosPredict2Pipeline,
-)
+from worldkernels.worlds.base import InteractiveWorldModel
 
 if TYPE_CHECKING:
+    from worldkernels.config import WorldConfig
     from worldkernels.core.action import Action
-    from worldkernels.core.config import WorldConfig
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +52,7 @@ CKPT_DIRS = {
 }
 
 
-class DreamDojoWorld(AbstractWorld):
+class DreamDojoWorld(InteractiveWorldModel):
     r"""Action-conditioned video world model (DreamDojo 2B/14B).
 
     Actions are robot joint vectors \(\in \mathbb{R}^{T \times D}\) where
@@ -98,8 +96,7 @@ class DreamDojoWorld(AbstractWorld):
         self.dtype = dtype
         experiment = self._experiment_override or EXPERIMENTS.get(self.variant, DEFAULT_EXPERIMENT)
         self.pipeline = CosmosPredict2Pipeline(experiment=experiment, config_file=CONFIG_FILE)
-        ckpt = self._resolve_checkpoint()
-        self.pipeline.load(device, dtype, ckpt)
+        self.pipeline.load(device, dtype, self._resolve_checkpoint())
 
     def _resolve_checkpoint(self) -> str:
         if self.ckpt_path is not None:
@@ -157,13 +154,14 @@ class DreamDojoWorld(AbstractWorld):
                 1, self.chunk_size, self.action_dim, device=self.device, dtype=self.dtype
             )
         )
-        new_latent, new_last_frame = self.pipeline.denoise(
+        new_latent, video = self.pipeline.denoise(
             cs,
             num_steps=self.num_inference_steps,
             guidance=self.guidance_scale,
             seed=int(time.perf_counter() * 1000) % (2**31),
             extras={"action": action},
         )
+        new_last_frame = ((video + 1.0) * 0.5)[0, :, -1].clamp(0, 1)
         return LatentState(
             data=CosmosPredict2Latent(new_latent, new_last_frame, cs.text_emb, cs.neg_text_emb),
             device=state.device,
@@ -205,7 +203,7 @@ class DreamDojoWorld(AbstractWorld):
         )
         return LatentState(data=cs, device=self.device)
 
-    def estimate_vram_mb(self, config: WorldConfig) -> float:
+    def profile_vram(self, config: WorldConfig) -> float:
         return CosmosPredict2Pipeline.estimate_latent_vram_mb(
             CosmosPredict2Pipeline(experiment="", config_file=""),
             height=config.height,

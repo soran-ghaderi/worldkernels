@@ -6,23 +6,23 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from worldkernels.worlds.base import AbstractWorld
+    from worldkernels.worlds.base import WorldModel
 
 log = logging.getLogger(__name__)
 
-# name -> AbstractWorld subclass (not instances, classes)
-_REGISTRY: dict[str, type[AbstractWorld]] = {}
+# name -> WorldModel subclass (not instances, classes)
+_REGISTRY: dict[str, type[WorldModel]] = {}
 _plugins_loaded = False
 
 
-def register_world(name: str, cls: type[AbstractWorld]) -> None:
+def register_world(name: str, cls: type[WorldModel]) -> None:
     if name in _REGISTRY:
         log.warning("Overwriting existing world registration: %s", name)
     _REGISTRY[name] = cls
     log.debug("Registered world: %s -> %s", name, cls.__qualname__)
 
 
-def get_world_class(name: str) -> type[AbstractWorld]:
+def get_world_class(name: str) -> type[WorldModel]:
     r"""Look up a registered world model class by name.
 
     Checks the adapter registry first, then resolves through the hub
@@ -52,23 +52,18 @@ def list_worlds() -> list[str]:
 
 
 def _register_builtins() -> None:
-    from worldkernels.worlds.adapters.dummy import DummyWorld
+    from worldkernels.worlds.base import GeneratorWorld
+    from worldkernels.worlds.dummy import DummyWorld
 
     register_world("dummy", DummyWorld)
+    register_world("generator_world", GeneratorWorld)
 
     try:
-        from worldkernels.worlds.adapters.dreamdojo import DreamDojoWorld
+        from worldkernels.worlds.dreamdojo import DreamDojoWorld
 
         register_world("dreamdojo", DreamDojoWorld)
     except ImportError:
-        log.debug("DreamDojo adapter not available (cosmos_predict2 not installed)")
-
-    try:
-        from worldkernels.worlds.adapters.cosmos import CosmosPredict2World
-
-        register_world("cosmos_predict2", CosmosPredict2World)
-    except ImportError:
-        log.debug("Cosmos-Predict2 adapter not available")
+        log.debug("DreamDojo world not available (cosmos_predict2 not installed)")
 
 
 # ---- entry_points discovery (lazy, once) --------------------------------

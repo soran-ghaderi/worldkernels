@@ -15,10 +15,10 @@ def test_all_exports_resolvable():
 
 def test_lazy_attributes_match_targets():
     worlds = importlib.import_module("worldkernels.worlds")
-    from worldkernels.worlds.base import AbstractWorld
+    from worldkernels.worlds.base import WorldModel
     from worldkernels.worlds.registry import get_world_class, list_worlds, register_world
 
-    assert worlds.AbstractWorld is AbstractWorld
+    assert worlds.WorldModel is WorldModel
     assert worlds.get_world_class is get_world_class
     assert worlds.list_worlds is list_worlds
     assert worlds.register_world is register_world

@@ -108,10 +108,16 @@ class TestEnsureModelDeps:
         assert called is False
 
     def test_card_without_pip_extra_is_noop(self, monkeypatch):
-        monkeypatch.setattr("subprocess.check_call", lambda *a, **kw: setattr(self_, "_c", True))
+        called = {"yes": False}
+
+        def _spy(*a, **kw):
+            called["yes"] = True
+
+        monkeypatch.setattr("subprocess.check_call", _spy)
         register_model("_no_extra", ModelCard(adapter="dummy"))
         try:
             ensure_model_deps("_no_extra")
+            assert called["yes"] is False
         finally:
             hub._HUB.pop("_no_extra", None)
 
@@ -174,7 +180,7 @@ class TestBuiltinRegistrations:
     def test_alias_registered(self, alias):
         card = get_model_card(alias)
         assert card is not None
-        assert card.adapter in {"dummy", "dreamdojo", "cosmos_predict2"}
+        assert card.adapter in {"dummy", "dreamdojo", "generator_world"}
 
 
 self_ = type("_X", (), {})()

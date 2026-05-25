@@ -6,6 +6,7 @@ and CLI argument parsing."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -166,16 +167,39 @@ class TestWriteManifest:
         assert "tensors" in data
 
 
+class TestStubTextEncoderEnv:
+    def test_sets_and_restores_when_absent(self, monkeypatch):
+        monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
+        with cr._stub_text_encoder_env():
+            assert os.environ["WK_STUB_TEXT_ENCODER"] == "1"
+        assert "WK_STUB_TEXT_ENCODER" not in os.environ
+
+    def test_restores_prior_value(self, monkeypatch):
+        monkeypatch.setenv("WK_STUB_TEXT_ENCODER", "0")
+        with cr._stub_text_encoder_env():
+            assert os.environ["WK_STUB_TEXT_ENCODER"] == "1"
+        assert os.environ["WK_STUB_TEXT_ENCODER"] == "0"
+
+    def test_restores_on_exception(self, monkeypatch):
+        monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
+        with pytest.raises(RuntimeError):
+            with cr._stub_text_encoder_env():
+                raise RuntimeError("boom")
+        assert "WK_STUB_TEXT_ENCODER" not in os.environ
+
+
 class TestCaptureUnknownAdapter:
     def test_raises_value_error(self, monkeypatch):
+        monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
         cfg = cr.CaptureConfig(adapter="bogus", output_root=Path("/tmp"))
 
         monkeypatch.setattr(
-            "worldkernels.worlds.pipelines.cosmos_predict2.deps.ensure_cosmos_predict2",
+            "worldkernels.models.cosmos_predict2.deps.ensure_cosmos_predict2",
             lambda: None,
         )
         with pytest.raises(ValueError, match="unknown adapter"):
             cr.capture(cfg)
+        assert "WK_STUB_TEXT_ENCODER" not in os.environ
 
 
 class TestMainHelp:

@@ -54,7 +54,7 @@ class TestHubFallback:
             cls = get_world_class("nvidia/DreamDojo")
             assert cls is MockWorld
         finally:
-            from worldkernels.worlds.adapters.dreamdojo import DreamDojoWorld
+            from worldkernels.worlds.dreamdojo import DreamDojoWorld
 
             registry._REGISTRY["dreamdojo"] = DreamDojoWorld
 
@@ -82,7 +82,7 @@ class TestRegisterBuiltinsImportErrors:
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
-            if name == "worldkernels.worlds.adapters.dreamdojo":
+            if name == "worldkernels.worlds.dreamdojo":
                 raise ImportError("missing dep")
             return real_import(name, *args, **kwargs)
 
@@ -192,7 +192,7 @@ class TestPluginsDiscovery:
         eps = MagicMock()
         eps.select.return_value = [_FakeEP("dummy", MockWorld)]
         monkeypatch.setattr("importlib.metadata.entry_points", lambda: eps)
-        from worldkernels.worlds.adapters.dummy import DummyWorld
+        from worldkernels.worlds.dummy import DummyWorld
 
         registry._REGISTRY["dummy"] = DummyWorld
         registry._ensure_plugins_loaded()

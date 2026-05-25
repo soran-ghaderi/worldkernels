@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from contextlib import ExitStack, contextmanager
@@ -243,20 +244,45 @@ def _patch_vae_decode(model, buf: _CaptureBuffer) -> Iterator[None]:
         model.decode = orig
 
 
+@contextmanager
+def _stub_text_encoder_env() -> Iterator[None]:
+    r"""Force the text-encoder-free capture path, restoring the environment on exit.
+
+    The native rewrite keeps the HF text encoder, so golden text embeddings are
+    never needed. ``WK_STUB_TEXT_ENCODER`` swaps the 13 GB Qwen2.5-VL encoder for
+    a deterministic synthetic tensor; scoping it keeps a capture run (and the
+    pytest session that exercises ``capture``) from leaking the variable.
+    """
+    prev = os.environ.get("WK_STUB_TEXT_ENCODER")
+    os.environ["WK_STUB_TEXT_ENCODER"] = "1"
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("WK_STUB_TEXT_ENCODER", None)
+        else:
+            os.environ["WK_STUB_TEXT_ENCODER"] = prev
+
+
 def capture(cfg: CaptureConfig) -> Path:
     r"""Run the wrapper end-to-end at fixed inputs, snapshot every numerical boundary."""
+    with _stub_text_encoder_env():
+        return _capture(cfg)
+
+
+def _capture(cfg: CaptureConfig) -> Path:
     import torch
 
     from worldkernels.core.action import Action
     from worldkernels.core.config import WorldConfig
-    from worldkernels.worlds.pipelines.cosmos_predict2 import CosmosPredict2Latent
-    from worldkernels.worlds.pipelines.cosmos_predict2.deps import ensure_cosmos_predict2
+    from worldkernels.models.cosmos_predict2 import CosmosPredict2Latent
+    from worldkernels.models.cosmos_predict2.deps import ensure_cosmos_predict2
 
     ensure_cosmos_predict2()
     dtype = _parse_dtype(cfg.dtype_str)
 
     if cfg.adapter == "dreamdojo":
-        from worldkernels.worlds.adapters.dreamdojo import DreamDojoWorld
+        from worldkernels.worlds.dreamdojo import DreamDojoWorld
 
         world = DreamDojoWorld(
             variant=cfg.variant,
@@ -266,20 +292,23 @@ def capture(cfg: CaptureConfig) -> Path:
             guidance_scale=cfg.guidance,
         )
         is_action_conditioned = True
+        pipeline_attr = "pipeline"
     elif cfg.adapter == "cosmos":
-        from worldkernels.worlds.adapters.cosmos import CosmosPredict2World
+        from worldkernels.worlds.base import GeneratorWorld
 
-        world = CosmosPredict2World(
+        world = GeneratorWorld(
+            generator="cosmos_predict2",
             num_inference_steps=cfg.num_steps,
             guidance_scale=cfg.guidance,
         )
         is_action_conditioned = False
+        pipeline_attr = "generator"
     else:
         raise ValueError(f"unknown adapter {cfg.adapter!r}")
 
     log.info("Initializing %s/%s on %s/%s", cfg.adapter, cfg.variant, cfg.device, dtype)
     world.initialize(cfg.device, dtype)
-    pipeline = world.pipeline
+    pipeline = getattr(world, pipeline_attr)
     model = pipeline._model
     buf = _CaptureBuffer()
 

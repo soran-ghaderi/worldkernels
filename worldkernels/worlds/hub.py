@@ -1,20 +1,40 @@
-r"""Model hub registry mapping HF repo IDs and short aliases to adapters."""
+r"""Model hub: maps HF repo IDs and short aliases to world models and generators."""
 
 from __future__ import annotations
 
 import importlib as _importlib
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 log = logging.getLogger(__name__)
+
+_WAN_NEGATIVE_PROMPT = (
+    "overexposed, static, blurred details, subtitles, worst quality, low quality, "
+    "JPEG compression residue, ugly, deformed, disfigured, misshapen limbs, "
+    "fused fingers, still picture, cluttered background, three legs, walking backwards"
+)
 
 
 @dataclass(frozen=True)
 class ModelCard:
-    r"""Metadata for a known world model variant."""
+    r"""Metadata for a known model.
+
+    Args:
+        adapter: World-registry key of the world class. For generators this is
+            ``"generator_world"``; the engine wraps the generator pipeline.
+        kind: ``"world"`` for a true world model, ``"generator"`` for a one-shot
+            video generator surfaced via ``GeneratorWorld``.
+        generator: Pipeline-registry key of the wrapped generator (kind=generator).
+        hf_repo: HuggingFace repo ID, if any.
+        default_kwargs: Constructor kwargs merged under user kwargs.
+        description: Human-readable summary.
+        pip_extra: Optional ``worldkernels`` extra to auto-install on load.
+    """
 
     adapter: str
+    kind: Literal["world", "generator"] = "world"
+    generator: str | None = None
     hf_repo: str | None = None
     default_kwargs: dict[str, Any] = field(default_factory=dict)
     description: str = ""
@@ -38,11 +58,12 @@ def list_models() -> dict[str, ModelCard]:
 
 _EXTRA_SENTINELS: dict[str, str] = {
     "cosmos": "transformers",
+    "diffusion": "diffusers",
 }
 
 
 def ensure_model_deps(model_id: str) -> None:
-    r"""Auto-install missing pip extras required by a model adapter."""
+    r"""Auto-install missing pip extras required by a model."""
     card = _HUB.get(model_id)
     if card is None or card.pip_extra is None:
         return
@@ -70,23 +91,19 @@ def ensure_model_deps(model_id: str) -> None:
     log.info("Dependencies installed successfully.")
 
 
-def resolve_model(
-    model_id: str,
-    **user_kwargs: Any,
-) -> tuple[str, dict[str, Any]]:
-    r"""Resolve a model identifier to (adapter_name, merged_kwargs).
+def resolve_model(model_id: str, **user_kwargs: Any) -> tuple[str, dict[str, Any]]:
+    r"""Resolve a model identifier to ``(world_registry_key, merged_kwargs)``.
 
-    Lookup order:
-    1. Exact match in hub (short name or HF repo ID).
-    2. Return model_id as-is (fall through to worlds registry).
-
-    User kwargs override hub defaults.
+    Hub default kwargs are merged under user kwargs. For a generator card the
+    wrapped generator key is injected so the engine constructs a ``GeneratorWorld``.
     """
     card = _HUB.get(model_id)
-    if card is not None:
-        merged = {**card.default_kwargs, **user_kwargs}
-        return card.adapter, merged
-    return model_id, user_kwargs
+    if card is None:
+        return model_id, user_kwargs
+    merged = {**card.default_kwargs, **user_kwargs}
+    if card.generator is not None:
+        merged.setdefault("generator", card.generator)
+    return card.adapter, merged
 
 
 def _register_builtins() -> None:
@@ -110,6 +127,7 @@ def _register_builtins() -> None:
             short,
             ModelCard(
                 adapter="dreamdojo",
+                kind="world",
                 hf_repo="nvidia/DreamDojo",
                 default_kwargs={"variant": variant},
                 description=desc,
@@ -117,57 +135,58 @@ def _register_builtins() -> None:
             ),
         )
 
-    register_model(
-        "nvidia/DreamDojo",
-        ModelCard(
-            adapter="dreamdojo",
-            hf_repo="nvidia/DreamDojo",
-            default_kwargs={"variant": "2b_pretrain"},
-            description="DreamDojo action-conditioned video world model (default: 2B pretrain)",
-            pip_extra="cosmos",
-        ),
+    _dreamdojo_card = ModelCard(
+        adapter="dreamdojo",
+        kind="world",
+        hf_repo="nvidia/DreamDojo",
+        default_kwargs={"variant": "2b_pretrain"},
+        description="DreamDojo action-conditioned video world model (default: 2B pretrain)",
+        pip_extra="cosmos",
     )
+    register_model("dreamdojo", _dreamdojo_card)
+    register_model("nvidia/DreamDojo", _dreamdojo_card)
 
-    register_model(
-        "dreamdojo",
-        ModelCard(
-            adapter="dreamdojo",
-            hf_repo="nvidia/DreamDojo",
-            default_kwargs={"variant": "2b_pretrain"},
-            description="DreamDojo action-conditioned video world model (default: 2B pretrain)",
-            pip_extra="cosmos",
-        ),
+    _cosmos_card = ModelCard(
+        adapter="generator_world",
+        kind="generator",
+        generator="cosmos_predict2",
+        hf_repo="nvidia/Cosmos-Predict2.5-2B",
+        default_kwargs={"num_inference_steps": 35, "guidance_scale": 7.0},
+        description="Cosmos-Predict2.5-2B text-conditioned video generator",
+        pip_extra="cosmos",
     )
+    for name in ("cosmos-predict2", "cosmos_predict2", "nvidia/Cosmos-Predict2.5-2B"):
+        register_model(name, _cosmos_card)
 
-    register_model(
-        "cosmos-predict2",
-        ModelCard(
-            adapter="cosmos_predict2",
-            hf_repo="nvidia/Cosmos-Predict2.5-2B",
-            description="Cosmos-Predict2.5-2B text-conditioned video-to-world",
-            pip_extra="cosmos",
+    _wan_variants = {
+        "wan2.2-ti2v-5b": (
+            "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+            5.0,
+            "Wan2.2 TI2V-5B text/image-to-video (dense, 720p)",
         ),
-    )
-
-    register_model(
-        "nvidia/Cosmos-Predict2.5-2B",
-        ModelCard(
-            adapter="cosmos_predict2",
-            hf_repo="nvidia/Cosmos-Predict2.5-2B",
-            description="Cosmos-Predict2.5-2B text-conditioned video-to-world",
-            pip_extra="cosmos",
+        "wan2.1-i2v-14b": (
+            "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
+            3.0,
+            "Wan2.1 I2V-14B image-to-video (480p)",
         ),
-    )
-
-    register_model(
-        "cosmos_predict2",
-        ModelCard(
-            adapter="cosmos_predict2",
-            hf_repo="nvidia/Cosmos-Predict2.5-2B",
-            description="Cosmos-Predict2.5-2B text-conditioned video-to-world",
-            pip_extra="cosmos",
-        ),
-    )
+    }
+    for short, (repo, flow_shift, desc) in _wan_variants.items():
+        card = ModelCard(
+            adapter="generator_world",
+            kind="generator",
+            generator="wan_i2v",
+            hf_repo=repo,
+            default_kwargs={
+                "repo": repo,
+                "pipeline_class": "WanImageToVideoPipeline",
+                "flow_shift": flow_shift,
+                "negative_prompt": _WAN_NEGATIVE_PROMPT,
+            },
+            description=desc,
+            pip_extra="diffusion",
+        )
+        register_model(short, card)
+        register_model(repo, card)
 
 
 _register_builtins()

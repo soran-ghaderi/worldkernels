@@ -9,7 +9,7 @@ from worldkernels.core.config import WorldConfig
 from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState
 from worldkernels.runtime.stages import StageExecMode, StageType, TransitionMode
-from worldkernels.worlds.adapters.dummy.adapter import DummyWorld
+from worldkernels.worlds.dummy import DummyWorld
 
 
 class TestMetadata:
@@ -100,13 +100,13 @@ class TestEstimateVram:
     def test_positive(self):
         w = DummyWorld()
         cfg = WorldConfig(height=64, width=64)
-        v = w.estimate_vram_mb(cfg)
+        v = w.profile_vram(cfg)
         assert v > 0
 
     def test_grows_with_resolution(self):
         w = DummyWorld()
-        v1 = w.estimate_vram_mb(WorldConfig(height=64, width=64))
-        v2 = w.estimate_vram_mb(WorldConfig(height=512, width=512))
+        v1 = w.profile_vram(WorldConfig(height=64, width=64))
+        v2 = w.profile_vram(WorldConfig(height=512, width=512))
         assert v2 > v1
 
 
