@@ -15,12 +15,18 @@ __all__ = [
 ]
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
-    "CosmosPredict2Latent": ("worldkernels.worlds.pipelines.cosmos_predict2.pipeline", "CosmosPredict2Latent"),
-    "CosmosPredict2Pipeline": (
+    "CosmosPredict2Latent": (  # noqa: E501
         "worldkernels.worlds.pipelines.cosmos_predict2.pipeline",
+        "CosmosPredict2Latent",
+    ),
+    "CosmosPredict2Pipeline": (
+        "worldkernels.worlds.pipelines.cosmos_predict2.pipeline",  # noqa: E501
         "CosmosPredict2Pipeline",
     ),
-    "ensure_cosmos_predict2": ("worldkernels.worlds.pipelines.cosmos_predict2.deps", "ensure_cosmos_predict2"),
+    "ensure_cosmos_predict2": (
+        "worldkernels.worlds.pipelines.cosmos_predict2.deps",
+        "ensure_cosmos_predict2",
+    ),
 }
 
 

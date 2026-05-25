@@ -2,8 +2,6 @@ r"""Tests for worldkernels/cli/bench.py."""
 
 from __future__ import annotations
 
-import pytest
-
 from worldkernels.cli.bench import (
     bench_env,
     run_latency,

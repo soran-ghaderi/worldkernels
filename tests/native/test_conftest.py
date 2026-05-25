@@ -2,8 +2,6 @@ r"""Tests for tests/native/conftest.py (CLI-flag parsing + fixture wiring)."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 
 def test_fixture_cfg_uses_defaults(pytestconfig):
     from tests.native.conftest import _parse_spatial

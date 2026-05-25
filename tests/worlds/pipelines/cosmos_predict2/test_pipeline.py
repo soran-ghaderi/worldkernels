@@ -277,9 +277,7 @@ class TestLoadShortCircuit:
         )
         monkeypatch.setattr(p, "_load_model", lambda *a, **kw: MagicMock())
         monkeypatch.setattr(p, "encode_text", lambda prompt: torch.zeros(1, 4, 4))
-        monkeypatch.setattr(
-            "torch.cuda.memory_allocated", lambda *a, **kw: 0, raising=False
-        )
+        monkeypatch.setattr("torch.cuda.memory_allocated", lambda *a, **kw: 0, raising=False)
         p.load("cpu", torch.float32, "/fake/ckpt")
         assert p.is_loaded is True
         assert p._neg_text_emb is not None
@@ -333,8 +331,9 @@ class TestCreateInitialState:
 
 
 @pytest.mark.skipif(
-    pytest.importorskip.__module__ and __import__("importlib").util.find_spec("torchvision") is None,
-    reason="torchvision required by encode_image",
+    pytest.importorskip.__module__
+    and __import__("importlib").util.find_spec("torchvision") is None,
+    reason="torchvision required by encode_image",  # noqa: E501
 )
 class TestEncodeImage:
     def _pipeline(self):
@@ -382,7 +381,12 @@ class TestEncodeTextRouting:
         p.device = "cpu"
         p.dtype = torch.float32
         text_encoder = MagicMock()
-        text_encoder.compute_text_embeddings_online.return_value = torch.ones(1, 4, 8, dtype=torch.float32)
+        text_encoder.compute_text_embeddings_online.return_value = torch.ones(
+            1,
+            4,
+            8,
+            dtype=torch.float32,  # noqa: E501
+        )
         p._model = MagicMock()
         p._model.text_encoder = text_encoder
         out = p.encode_text("hello")
@@ -403,9 +407,7 @@ class TestEncodeTextRouting:
         src = types.ModuleType("cosmos_predict2._src")
         predict2 = types.ModuleType("cosmos_predict2._src.predict2")
         inference = types.ModuleType("cosmos_predict2._src.predict2.inference")
-        get_t5_emb_mod = types.ModuleType(
-            "cosmos_predict2._src.predict2.inference.get_t5_emb"
-        )
+        get_t5_emb_mod = types.ModuleType("cosmos_predict2._src.predict2.inference.get_t5_emb")
 
         def fake_get_text_embedding(prompt):
             assert prompt == "hello"
@@ -420,9 +422,7 @@ class TestEncodeTextRouting:
         monkeypatch.setitem(sys.modules, "cosmos_predict2", cosmos)
         monkeypatch.setitem(sys.modules, "cosmos_predict2._src", src)
         monkeypatch.setitem(sys.modules, "cosmos_predict2._src.predict2", predict2)
-        monkeypatch.setitem(
-            sys.modules, "cosmos_predict2._src.predict2.inference", inference
-        )
+        monkeypatch.setitem(sys.modules, "cosmos_predict2._src.predict2.inference", inference)
         monkeypatch.setitem(
             sys.modules,
             "cosmos_predict2._src.predict2.inference.get_t5_emb",
@@ -435,8 +435,6 @@ class TestEncodeTextRouting:
 
 class TestDownloadHelper:
     def test_calls_hf_hub_download(self, monkeypatch):
-        from worldkernels.worlds.pipelines.cosmos_predict2 import pipeline as pip_mod
-
         fake = MagicMock(return_value="/path")
         monkeypatch.setattr("huggingface_hub.hf_hub_download", fake, raising=False)
         assert _download_hf_file("repo", "file.bin") == "/path"

@@ -94,8 +94,7 @@ def init_distributed(
     global_rank = int(os.environ.get("RANK", dist.get_rank()))
     if dist.get_world_size() != config.world_size:
         raise ValueError(
-            f"launched world size {dist.get_world_size()} != config world size "
-            f"{config.world_size}"
+            f"launched world size {dist.get_world_size()} != config world size {config.world_size}"
         )
     _STATE.global_rank = global_rank
 

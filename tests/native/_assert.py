@@ -48,7 +48,7 @@ TOLERANCES: dict[str, StageTolerance] = {
     "sampler_step": StageTolerance(
         1e-6,
         1e-6,
-        "FlowUniPCMultistepScheduler.step is closed-form given (x_t, t, eps); near machine precision",
+        "FlowUniPCMultistepScheduler.step is closed-form given (x_t, t, eps); near machine precision",  # noqa: E501
     ),
     "dit_block": StageTolerance(
         1e-2, 1e-2, "A single WanAttentionBlock forward; bf16, accumulates rounding within block"
@@ -92,7 +92,7 @@ class DriftReport:
         status = "PASS" if self.passed else "FAIL"
         return (
             f"[{status} {self.stage}:{self.name}]\n"
-            f"  max_abs={self.max_abs:.4e}  mean_abs={self.mean_abs:.4e}  max_rel={self.max_rel:.4e}\n"
+            f"  max_abs={self.max_abs:.4e}  mean_abs={self.mean_abs:.4e}  max_rel={self.max_rel:.4e}\n"  # noqa: E501
             f"  worst_idx={self.worst_idx}  overshoot={self.worst_overshoot:.4e}\n"
             f"  over_budget={self.n_over_budget}/{self.n_total}\n"
             f"  ref shape={self.ref_shape} dtype={self.ref_dtype}\n"
