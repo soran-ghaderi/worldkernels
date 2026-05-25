@@ -157,7 +157,9 @@ class TestFindCosmosPredict2:
         r"""Force every candidate to be a fresh empty dir, ensuring None."""
         monkeypatch.setattr(
             "os.environ.get",
-            lambda key, default="": str(tmp_path / "empty_env") if key == "COSMOS_PREDICT2_PATH" else default,  # noqa: E501
+            lambda key, default="": (
+                str(tmp_path / "empty_env") if key == "COSMOS_PREDICT2_PATH" else default
+            ),  # noqa: E501
         )
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "empty_home")
         monkeypatch.setattr(
@@ -223,7 +225,9 @@ class TestEnsureCosmosPredict2:
     def test_existing_import_short_circuits_search(self, monkeypatch):
         deps._setup_done = False
         sys.modules["cosmos_predict2"] = types.ModuleType("cosmos_predict2")
-        monkeypatch.setattr(deps, "_find_cosmos_predict2", lambda: pytest.fail("must not be called"))  # noqa: E501
+        monkeypatch.setattr(
+            deps, "_find_cosmos_predict2", lambda: pytest.fail("must not be called")
+        )  # noqa: E501
         deps.ensure_cosmos_predict2()
         assert deps._setup_done is True
 

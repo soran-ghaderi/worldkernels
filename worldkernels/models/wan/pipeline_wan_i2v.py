@@ -52,9 +52,7 @@ class WanLatent:
             last_frame=self.last_frame.clone(),
             prompt_embeds=self.prompt_embeds.clone(),
             negative_prompt_embeds=(
-                None
-                if self.negative_prompt_embeds is None
-                else self.negative_prompt_embeds.clone()
+                None if self.negative_prompt_embeds is None else self.negative_prompt_embeds.clone()
             ),
             latent=None if self.latent is None else self.latent.clone(),
             video=None if self.video is None else self.video.clone(),

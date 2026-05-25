@@ -329,8 +329,14 @@ class CosmosPredict2Pipeline(VideoGenerator):
         lh, lw = height // self.SPATIAL_FACTOR, width // self.SPATIAL_FACTOR
         latent_t = self._model.tokenizer.get_latent_num_frames(frames_per_step + 1)
         latent = torch.randn(
-            1, self.LATENT_CH, latent_t, lh, lw,
-            generator=gen, dtype=self.dtype, device=self.device,
+            1,
+            self.LATENT_CH,
+            latent_t,
+            lh,
+            lw,
+            generator=gen,
+            dtype=self.dtype,
+            device=self.device,
         )
         last_frame = torch.zeros(1, 3, height, width, dtype=self.dtype, device=self.device)
         return latent, last_frame
@@ -500,6 +506,4 @@ class CosmosPredict2Pipeline(VideoGenerator):
         )
 
     def profile_vram(self, *, height: int, width: int, num_frames: int) -> float:
-        return self.estimate_latent_vram_mb(
-            height=height, width=width, frames_per_step=num_frames
-        )
+        return self.estimate_latent_vram_mb(height=height, width=width, frames_per_step=num_frames)

@@ -22,8 +22,6 @@ def test_get_pipeline_class_unknown_raises():
 
 
 def test_register_pipeline_adds_entry():
-    register_pipeline(
-        "dummy_family", "worldkernels.models.wan.pipeline_wan_i2v", "WanLatent"
-    )
+    register_pipeline("dummy_family", "worldkernels.models.wan.pipeline_wan_i2v", "WanLatent")
     assert "dummy_family" in list_pipelines()
     assert get_pipeline_class("dummy_family").__name__ == "WanLatent"
