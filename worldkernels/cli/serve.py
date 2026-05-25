@@ -14,11 +14,7 @@ def run_serve(
     model: str | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> None:
-    try:
-        import uvicorn
-    except ImportError:
-        print("uvicorn not installed. Install with: pip install worldkernels[serve]")
-        raise SystemExit(1)
+    import uvicorn
 
     from worldkernels.core.config import ServerConfig
     from worldkernels.serving.server import create_app

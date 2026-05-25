@@ -19,7 +19,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-_SETUP_DONE = False
+_setup_done = False
 
 
 def _inject_stub(module_name: str, attrs: dict | None = None) -> types.ModuleType:
@@ -201,10 +201,10 @@ def _try_clone_cosmos_predict2() -> str | None:
 
 def ensure_cosmos_predict2() -> None:
     r"""Set up environment so ``import cosmos_predict2`` works for inference."""
-    global _SETUP_DONE
-    if _SETUP_DONE:
+    global _setup_done
+    if _setup_done:
         return
-    _SETUP_DONE = True
+    _setup_done = True
 
     os.environ.setdefault("COSMOS_INTERNAL", "1")
 
@@ -224,8 +224,7 @@ def ensure_cosmos_predict2() -> None:
         raise ImportError(
             "cosmos_predict2 not found. Fix with ONE of:\n"
             "  1. git clone https://github.com/NVIDIA/DreamDojo.git ~/DreamDojo\n"
-            "  2. export COSMOS_PREDICT2_PATH=/path/to/DreamDojo\n"
-            "  3. pip install cosmos-predict2"
+            "  2. export COSMOS_PREDICT2_PATH=/path/to/DreamDojo"
         )
 
     if repo_root not in sys.path:

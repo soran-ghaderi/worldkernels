@@ -214,3 +214,7 @@ copilot-instructions.md
 worldkernel-roadmap.py
 worldkernels/_version.py
 template-projs-toberemoved/
+
+# Captured reference fixtures (regenerated via `pytest --regen-fixtures`
+# or downloaded from the worldkernels HF dataset; never committed)
+tests/fixtures/data/

@@ -42,9 +42,45 @@ dependencies = [
     "numpy",
     "pydantic>=2.0",
     "tyro>=0.8",
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.20",
+    "websockets>=11.0",
+    "huggingface_hub>=0.20",
+    "safetensors>=0.4",
+    "einops>=0.7",
+    "imageio>=2.30",
+    "nvidia-ml-py>=12.0",
+    "prometheus_client>=0.17",
 ]
 
 [project.optional-dependencies]
+cosmos = [
+    "transformers>=4.40",
+    "torchvision>=0.15",
+    "diffusers>=0.30",
+    "accelerate>=0.25.0",
+    "lightning>=2.0",
+    "omegaconf>=2.3",
+    "hydra-core>=1.3",
+    "peft>=0.15",
+    "attrs>=23.0",
+    "fvcore>=0.1",
+    "scipy>=1.10",
+    "decord>=0.6",
+    "h5py>=3.8",
+    "sentencepiece>=0.2",
+    "opencv-python>=4.8",
+    "boto3>=1.30",
+    "numpydantic>=1.0",
+    "qwen-vl-utils>=0.0.10",
+    "pytz",
+    "loguru>=0.7",
+    "wandb>=0.15",
+    "lerobot>=0.5",
+]
+all = [
+    "worldkernels[cosmos]",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -55,60 +91,6 @@ dev = [
     "build>=1.2",
     "twine>=5.0",
     "pip-audit>=2.7",
-]
-serve = [
-    "fastapi>=0.100",
-    "uvicorn[standard]>=0.20",
-    "websockets>=11.0",
-]
-diffusers = [
-    "diffusers>=0.25.0",
-    "transformers>=4.35.0",
-    "accelerate>=0.25.0",
-    "safetensors>=0.4.0",
-    "huggingface_hub>=0.20",
-]
-dreamdojo = [
-    "einops>=0.7",
-    "transformers>=4.40",
-    "safetensors>=0.4",
-    "huggingface_hub>=0.20",
-    "torchvision>=0.15",
-]
-cosmos = [
-    "einops>=0.7",
-    "transformers>=4.40,<5.0",
-    "safetensors>=0.4",
-    "huggingface_hub>=0.20",
-    "torchvision>=0.15",
-    "flash-attn>=2.7",
-    "lightning>=2.0",
-    "pytz",
-    "omegaconf>=2.3",
-    "hydra-core>=1.3",
-    "peft>=0.15",
-    "attrs>=23.0",
-    "fvcore>=0.1",
-    "loguru>=0.7",
-    "wandb>=0.15",
-    "scipy>=1.10",
-    "decord>=0.6",
-    "h5py>=3.8",
-    "lerobot>=0.5",
-    "diffusers>=0.30",
-    "sentencepiece>=0.2",
-    "opencv-python>=4.8",
-    "imageio>=2.30",
-    "boto3>=1.30",
-    "numpydantic>=1.0",
-    "nvidia-ml-py>=12.0",
-    "qwen-vl-utils>=0.0.10",
-]
-metrics = [
-    "prometheus_client>=0.17",
-]
-all = [
-    "worldkernels[dev,serve,diffusers,dreamdojo,cosmos,metrics]",
 ]
 docs = [
     "mkdocs-material>=9.0.0",
@@ -153,6 +135,15 @@ include = ["worldkernels*"]
 minversion = "7.0"
 addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
+pythonpath = ["."]
+norecursedirs = [
+    "template-projs-toberemoved",
+    ".venv",
+    "build",
+    "dist",
+    "node_modules",
+    "*.egg-info",
+]
 markers = [
     "gpu: requires a CUDA GPU (skip with -m 'not gpu')",
 ]

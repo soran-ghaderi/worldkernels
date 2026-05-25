@@ -2,10 +2,16 @@ r"""World model adapters.
 
 Each adapter lives in its own subpackage with a standard layout::
 
-    adapters/<model_name>/
-        __init__.py    # public exports
+    adapters/<adapter_name>/
+        __init__.py    # lazy public exports via __getattr__
         adapter.py     # AbstractWorld subclass
-        state.py       # model-specific LatentState container
+
+Adapters sharing a model family use a private family package::
+
+    adapters/_<family_name>/
+        __init__.py    # lazy re-exports of shared internals
+        _base.py       # shared base class
+        _deps.py       # dependency setup
 
 Adapters are loaded lazily via the registry. Direct imports are also supported:
 

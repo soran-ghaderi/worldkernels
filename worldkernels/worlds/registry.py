@@ -23,12 +23,23 @@ def register_world(name: str, cls: type[AbstractWorld]) -> None:
 
 
 def get_world_class(name: str) -> type[AbstractWorld]:
-    r"""Look up a registered world model class by name."""
+    r"""Look up a registered world model class by name.
+
+    Checks the adapter registry first, then resolves through the hub
+    (which maps HF repo IDs and short aliases to adapter names).
+    """
     _ensure_plugins_loaded()
-    if name not in _REGISTRY:
-        available = ", ".join(sorted(_REGISTRY)) or "(none)"
-        raise KeyError(f"World '{name}' not found in registry. Available: {available}")
-    return _REGISTRY[name]
+    if name in _REGISTRY:
+        return _REGISTRY[name]
+
+    from worldkernels.worlds.hub import get_model_card
+
+    card = get_model_card(name)
+    if card is not None and card.adapter in _REGISTRY:
+        return _REGISTRY[card.adapter]
+
+    available = ", ".join(sorted(_REGISTRY)) or "(none)"
+    raise KeyError(f"World '{name}' not found in registry. Available: {available}")
 
 
 def list_worlds() -> list[str]:

@@ -82,17 +82,25 @@ class WorldKernel:
         trust_remote_code: bool = False,
         **kwargs: Any,
     ) -> None:
-        r"""Load a world model by registry name or HF Hub ID.
+        r"""Load a world model by short name, HF repo ID, or registry name.
+
+        Resolution order: hub (short names + HF IDs) -> worlds registry.
+        Hub default kwargs are merged with user kwargs (user wins).
 
         Args:
-            model_id: Registry name (e.g. "dreamdojo") or HF Hub ID.
+            model_id: Short name (e.g. "dreamdojo-2b-gr1"), HF repo ID
+                (e.g. "nvidia/DreamDojo"), or adapter registry name.
             alias: Optional short name for the loaded model.
             trust_remote_code: Allow custom code from HF Hub.
             **kwargs: Forwarded to the adapter constructor (e.g.
-                ``experiment``, ``ckpt_path`` for DreamDojo).
+                ``variant``, ``ckpt_path`` for DreamDojo).
         """
         from worldkernels.core.config import WorldConfig as WC
+        from worldkernels.worlds.hub import ensure_model_deps, resolve_model
         from worldkernels.worlds.registry import get_world_class
+
+        ensure_model_deps(model_id)
+        adapter_name, merged_kwargs = resolve_model(model_id, **kwargs)
 
         key = alias or model_id.split("/")[-1]
 
@@ -100,11 +108,11 @@ class WorldKernel:
             raise WorldAlreadyLoadedError(key)
 
         try:
-            world_cls = get_world_class(model_id)
+            world_cls = get_world_class(adapter_name)
         except KeyError:
             raise WorldNotFoundError(model_id)
 
-        world: AbstractWorld = world_cls(**kwargs)
+        world: AbstractWorld = world_cls(**merged_kwargs)
         try:
             world.initialize(device=self.device, dtype=self.dtype)
         except Exception as exc:
