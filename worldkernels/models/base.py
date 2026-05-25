@@ -84,10 +84,9 @@ class VideoGenerator(ABC):
     def advance(
         self,
         conditioning: Any,
-        result: GenerationResult,
         next_image: "torch.Tensor",
     ) -> Any:
-        r"""Build the next-step conditioning from a result and a rollout frame."""
+        r"""Build the next-step conditioning from the previous one and a rollout frame."""
 
     @abstractmethod
     def decode(self, latent: "torch.Tensor") -> "torch.Tensor":
