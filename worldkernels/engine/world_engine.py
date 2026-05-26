@@ -78,38 +78,51 @@ class WorldEngine:
         self,
         model_id: str,
         alias: str | None = None,
+        variant: str | None = None,
+        ckpt_path: str | None = None,
+        progress: Any = None,
+        allow_fetch: bool = True,
         trust_remote_code: bool = False,
         **kwargs: Any,
     ) -> None:
-        r"""Load a world model by short name, HF repo ID, or registry name.
+        r"""Load a world model from a hub alias, HF repo id, or local checkpoint path.
 
-        Resolution order: hub (short names + HF IDs) -> worlds registry. Hub
-        default kwargs are merged with user kwargs (user wins). Generators are
-        resolved to `GeneratorWorld` automatically.
+        Drives the full bootstrap pipeline (resolve → deps → packages → weights → init)
+        through `worldkernels.bootstrap.prepare`.
 
         Args:
-            model_id: Short name, HF repo ID, or adapter registry name.
-            alias: Optional short name for the loaded model.
-            trust_remote_code: Allow custom code from HF Hub.
-            **kwargs: Forwarded to the world constructor.
+            model_id: Short alias, HF repo id, HF URL, or local path.
+            alias: Override the in-engine key (defaults to a slug of ``model_id``).
+            variant: Pick a variant from the model card (e.g. ``"2b_gr1"``).
+            ckpt_path: Bypass HF download with a local checkpoint file.
+            progress: Optional `ProgressController` (CLI/HTTP pass theirs through).
+            allow_fetch: If ``False``, errors instead of installing/cloning/downloading.
+            trust_remote_code: Allow custom code from HF Hub (reserved; not yet enforced).
+            **kwargs: Forwarded to the world constructor (overrides card defaults).
         """
+        from worldkernels.bootstrap import prepare
         from worldkernels.config import WorldConfig as WC
-        from worldkernels.worlds.hub import ensure_model_deps, resolve_model
         from worldkernels.worlds.registry import get_world_class
 
-        ensure_model_deps(model_id)
-        adapter_name, merged_kwargs = resolve_model(model_id, **kwargs)
+        prepared = prepare(
+            model_id,
+            variant=variant,
+            ckpt_path=ckpt_path,
+            progress=progress,
+            allow_fetch=allow_fetch,
+            **kwargs,
+        )
+        key = alias or prepared.alias
 
-        key = alias or model_id.split("/")[-1]
         if key in self._worlds:
             raise WorldAlreadyLoadedError(key)
 
         try:
-            world_cls = get_world_class(adapter_name)
+            world_cls = get_world_class(prepared.adapter)
         except KeyError:
             raise WorldNotFoundError(model_id)
 
-        world: WorldModel = world_cls(**merged_kwargs)
+        world: WorldModel = world_cls(**prepared.kwargs)
         try:
             world.initialize(device=self.device, dtype=self.dtype)
         except Exception as exc:

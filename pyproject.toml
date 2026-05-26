@@ -42,6 +42,7 @@ dependencies = [
     "numpy",
     "pydantic>=2.0",
     "tyro>=0.8",
+    "rich>=13.0",
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
     "websockets>=11.0",

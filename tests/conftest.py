@@ -8,6 +8,7 @@ import pytest
 import torch
 
 os.environ["WORLDKERNELS_NO_AUTO_INSTALL"] = "1"
+os.environ["WORLDKERNELS_QUIET"] = "1"
 
 from tests._helpers.factories import make_world_config  # noqa: E402
 from tests._helpers.mocks import MockWorld  # noqa: E402
@@ -20,8 +21,18 @@ from worldkernels.worlds import (
 
 @pytest.fixture(autouse=True)
 def _no_pip_install(monkeypatch):
-    r"""Hard guard: under no circumstances may a test trigger pip install."""
+    r"""Hard guard: under no circumstances may a test trigger pip install or git clone."""
+    from worldkernels.bootstrap import deps as _deps
+
+    def _block_pip(card, progress=None, allow_fetch=True):
+        return None
+
+    def _block_git(card, progress=None, allow_fetch=True):
+        return None
+
     monkeypatch.setattr(_hub, "ensure_model_deps", lambda model_id: None)
+    monkeypatch.setattr(_deps, "provision_python_deps", _block_pip)
+    monkeypatch.setattr(_deps, "provision_git_packages", _block_git)
 
 
 @pytest.fixture
