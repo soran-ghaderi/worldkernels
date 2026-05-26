@@ -21,18 +21,29 @@ from worldkernels.worlds import (
 
 @pytest.fixture(autouse=True)
 def _no_pip_install(monkeypatch):
-    r"""Hard guard: under no circumstances may a test trigger pip install or git clone."""
+    r"""Hard guard: under no circumstances may a test trigger pip/uv install, git clone, or venv materialization."""
     from worldkernels.bootstrap import deps as _deps
+    from worldkernels.runtime import envs as _envs
 
-    def _block_pip(card, progress=None, allow_fetch=True):
+    def _block_pip(card, progress=None, allow_fetch=True, target_python=None):
         return None
 
     def _block_git(card, progress=None, allow_fetch=True):
         return None
 
+    def _block_install(packages, target_python=None, progress=None, constraints=None):
+        return None
+
+    def _block_env(model_id, requirements, device="cuda", progress=None, allow_fetch=True):
+        raise AssertionError(
+            f"test triggered materialize_env({model_id!r}); add a monkeypatch if intended"
+        )
+
     monkeypatch.setattr(_hub, "ensure_model_deps", lambda model_id: None)
     monkeypatch.setattr(_deps, "provision_python_deps", _block_pip)
     monkeypatch.setattr(_deps, "provision_git_packages", _block_git)
+    monkeypatch.setattr(_deps, "install_packages", _block_install)
+    monkeypatch.setattr(_envs, "materialize_env", _block_env)
 
 
 @pytest.fixture
