@@ -60,6 +60,8 @@ class WorldEngine:
 
         self._worlds: dict[str, WorldModel] = {}
         self._sessions: dict[str, Session] = {}
+        self._tiers: dict[str, str] = {}
+        self._cards: dict[str, Any] = {}
 
         from worldkernels.scheduler import Scheduler
         from worldkernels.worker import Worker
@@ -87,21 +89,70 @@ class WorldEngine:
     ) -> None:
         r"""Load a world model from a hub alias, HF repo id, or local checkpoint path.
 
-        Drives the full bootstrap pipeline (resolve → deps → packages → weights → init)
-        through `worldkernels.bootstrap.prepare`.
+        Drives the resolver (ADR-012): the resolver decides whether the model can
+        share the current env or needs an isolated subprocess. Shared models go
+        through `worldkernels.bootstrap.prepare` and instantiate locally; isolated
+        models materialize a per-model uv venv and are accessed via `RemoteWorld`.
 
         Args:
             model_id: Short alias, HF repo id, HF URL, or local path.
             alias: Override the in-engine key (defaults to a slug of ``model_id``).
-            variant: Pick a variant from the model card (e.g. ``"2b_gr1"``).
+            variant: Pick a variant from the model card.
             ckpt_path: Bypass HF download with a local checkpoint file.
             progress: Optional `ProgressController` (CLI/HTTP pass theirs through).
             allow_fetch: If ``False``, errors instead of installing/cloning/downloading.
-            trust_remote_code: Allow custom code from HF Hub (reserved; not yet enforced).
+            trust_remote_code: Allow custom code from HF Hub (reserved).
             **kwargs: Forwarded to the world constructor (overrides card defaults).
         """
         from worldkernels.bootstrap import prepare
+        from worldkernels.bootstrap.resolve import resolve as _resolve_ref
         from worldkernels.config import WorldConfig as WC
+        from worldkernels.runtime.resolver import IsolatedPlan, resolve_install_plan
+        from worldkernels.worlds.registry import get_world_class
+
+        resolved = _resolve_ref(model_id, variant=variant, ckpt_path=ckpt_path)
+        card = resolved.card
+        plan = resolve_install_plan(card, list(self._cards.values()))
+
+        if isinstance(plan, IsolatedPlan):
+            world, key, tier = self._load_isolated(
+                model_id, resolved, plan, alias, progress, allow_fetch, kwargs
+            )
+        else:
+            world, key, tier = self._load_shared(
+                model_id, alias, variant, ckpt_path, progress, allow_fetch, kwargs
+            )
+
+        if key in self._worlds:
+            try:
+                world.close()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            raise WorldAlreadyLoadedError(key)
+
+        try:
+            world.warmup(getattr(world, "default_config", None) or WC())
+        except Exception as exc:
+            raise WorldInitError(model_id, f"warmup failed: {exc}") from exc
+
+        self._worlds[key] = world
+        self._tiers[key] = tier
+        self._cards[key] = card
+        _emit_tier_metric(key, tier)
+        _emit_worker_count(self._tiers)
+        log.info("Loaded world: %s (tier=%s, class=%s)", key, tier, type(world).__name__)
+
+    def _load_shared(
+        self,
+        model_id: str,
+        alias: str | None,
+        variant: str | None,
+        ckpt_path: str | None,
+        progress: Any,
+        allow_fetch: bool,
+        kwargs: dict[str, Any],
+    ) -> tuple[Any, str, str]:
+        from worldkernels.bootstrap import prepare
         from worldkernels.worlds.registry import get_world_class
 
         prepared = prepare(
@@ -113,25 +164,72 @@ class WorldEngine:
             **kwargs,
         )
         key = alias or prepared.alias
-
-        if key in self._worlds:
-            raise WorldAlreadyLoadedError(key)
-
         try:
             world_cls = get_world_class(prepared.adapter)
-        except KeyError:
-            raise WorldNotFoundError(model_id)
+        except KeyError as exc:
+            raise WorldNotFoundError(model_id) from exc
 
-        world: WorldModel = world_cls(**prepared.kwargs)
+        world = world_cls(**prepared.kwargs)
         try:
             world.initialize(device=self.device, dtype=self.dtype)
         except Exception as exc:
             raise WorldInitError(model_id, str(exc)) from exc
+        return world, key, "shared"
 
-        world.warmup(world.default_config or WC())
+    def _load_isolated(
+        self,
+        model_id: str,
+        resolved: Any,
+        plan: Any,
+        alias: str | None,
+        progress: Any,
+        allow_fetch: bool,
+        kwargs: dict[str, Any],
+    ) -> tuple[Any, str, str]:
+        from worldkernels.runtime import envs
+        from worldkernels.worlds.remote import RemoteWorld
 
-        self._worlds[key] = world
-        log.info("Loaded world: %s (class=%s)", key, world_cls.__qualname__)
+        if progress is not None:
+            progress.event("isolating", "running", f"reason: {plan.reason}")
+
+        requirements = list(plan.requirements)
+        if "worldkernels" not in " ".join(requirements):
+            requirements.append("worldkernels")
+
+        envs.materialize_env(
+            model_id,
+            requirements,
+            device=self.device,
+            progress=progress,
+            allow_fetch=allow_fetch,
+        )
+
+        ctor_kwargs: dict[str, Any] = dict(resolved.card.default_kwargs)
+        if resolved.variant is not None:
+            ctor_kwargs["variant"] = resolved.variant
+        if resolved.ckpt_path is not None:
+            ctor_kwargs["ckpt_path"] = resolved.ckpt_path
+        ctor_kwargs.update(kwargs)
+
+        key = alias or self._alias_for(model_id, resolved.variant)
+        world = RemoteWorld(
+            model_id=model_id,
+            adapter=resolved.card.adapter,
+            ctor_kwargs=ctor_kwargs,
+        )
+        try:
+            world.initialize(device=self.device, dtype=self.dtype)
+        except Exception as exc:
+            try:
+                world.close()
+            finally:
+                raise WorldInitError(model_id, str(exc)) from exc
+        return world, key, "isolated"
+
+    @staticmethod
+    def _alias_for(model_id: str, variant: str | None) -> str:
+        base = model_id.split("/")[-1]
+        return f"{base}:{variant}" if variant else base
 
     def create_session(
         self,
@@ -191,12 +289,55 @@ class WorldEngine:
             raise WorldNotFoundError(name)
         for sid in [s for s, sess in self._sessions.items() if sess.world_id == name]:
             self.close_session(sid)
-        del self._worlds[name]
+        world = self._worlds.pop(name)
+        self._tiers.pop(name, None)
+        self._cards.pop(name, None)
+        close = getattr(world, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception as exc:
+                log.warning("error closing world %r: %s", name, exc)
+        _emit_worker_count(self._tiers)
         log.info("Unloaded world: %s", name)
+
+    def get_tier(self, name: str) -> str | None:
+        r"""Return the isolation tier (``"shared"`` / ``"isolated"``) for a loaded model."""
+        return self._tiers.get(name)
+
+    def list_tiers(self) -> dict[str, str]:
+        return dict(self._tiers)
 
     def shutdown(self) -> None:
         for session in self._sessions.values():
             session.close()
         self._sessions.clear()
+        for name, world in list(self._worlds.items()):
+            close = getattr(world, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as exc:
+                    log.warning("error closing world %r during shutdown: %s", name, exc)
         self._worlds.clear()
+        self._tiers.clear()
+        self._cards.clear()
         log.info("WorldEngine shut down.")
+
+
+def _emit_tier_metric(model_id: str, tier: str) -> None:
+    try:
+        from worldkernels.runtime import metrics
+
+        metrics.set_isolation_tier(model_id, 0 if tier == "shared" else 1)
+    except Exception:
+        pass
+
+
+def _emit_worker_count(tiers: dict[str, str]) -> None:
+    try:
+        from worldkernels.runtime import metrics
+
+        metrics.set_worker_processes(sum(1 for t in tiers.values() if t == "isolated"))
+    except Exception:
+        pass

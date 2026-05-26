@@ -27,6 +27,23 @@ class GitPackage:
 
 
 @dataclass(frozen=True)
+class Component:
+    r"""Sub-model component with its own pip extra and import sentinel.
+
+    Args:
+        name: Component identifier (e.g. ``"wan-vae"``).
+        extra: The worldkernels extra that provides it.
+        sentinel: A module path used to detect whether the extra is installed.
+        deps: PEP 508 specs for the component's deps (used by the resolver).
+    """
+
+    name: str
+    extra: str
+    sentinel: str
+    deps: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ModelCard:
     r"""Metadata for a known model.
 
@@ -57,6 +74,9 @@ class ModelCard:
     auth_required: bool = False
     allow_patterns: list[str] | None = None
     variant_pattern: list[str] | None = None
+    isolation: Literal["auto", "shared", "isolated"] = "auto"
+    constraints: list[str] = field(default_factory=list)
+    components: list[Component] = field(default_factory=list)
 
 
 _HUB: dict[str, ModelCard] = {}
