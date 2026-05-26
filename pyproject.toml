@@ -52,6 +52,8 @@ dependencies = [
     "imageio>=2.30",
     "nvidia-ml-py>=12.0",
     "prometheus_client>=0.17",
+    "uv>=0.5",
+    "msgpack>=1.0",
 ]
 
 [project.optional-dependencies]

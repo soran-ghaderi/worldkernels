@@ -1,0 +1,4 @@
+-r common.txt
+# CPU-only target. No flash-attn / xformers / NVIDIA tooling.
+# Install torch from https://download.pytorch.org/whl/cpu.
+torch>=2.0

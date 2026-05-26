@@ -12,7 +12,7 @@ import importlib
 from types import ModuleType
 from typing import Any
 
-__all__ = ["PlaceholderModule", "optional_import"]
+__all__ = ["PlaceholderModule", "optional_import", "LazyLoader"]
 
 
 class _PlaceholderBase:
@@ -70,3 +70,41 @@ def optional_import(pkg: str, extra: str) -> ModuleType | PlaceholderModule:
         return importlib.import_module(pkg)
     except ImportError:
         return PlaceholderModule(pkg, extra)
+
+
+class LazyLoader(ModuleType):
+    r"""Defer a module's import to first attribute access.
+
+    Useful for modules with import-time side effects (e.g. op registration) that
+    we want to keep out of the cold path. On first attribute access, the real
+    module is imported and patched into ``parent_globals`` + ``sys.modules`` so
+    subsequent accesses are free.
+
+    Args:
+        local_name: Binding name in the caller's module (e.g. ``"diffusers"``).
+        parent_globals: The caller's ``globals()`` dict.
+        module_name: Fully qualified import path.
+    """
+
+    def __init__(self, local_name: str, parent_globals: dict, module_name: str) -> None:
+        super().__init__(module_name)
+        self._local_name = local_name
+        self._parent_globals = parent_globals
+        self._module_name = module_name
+
+    def _load(self) -> ModuleType:
+        import sys as _sys
+
+        module = importlib.import_module(self._module_name)
+        self._parent_globals[self._local_name] = module
+        _sys.modules[self._module_name] = module
+        self.__dict__.update(module.__dict__)
+        return module
+
+    def __getattr__(self, item: str) -> Any:
+        module = self._load()
+        return getattr(module, item)
+
+    def __dir__(self) -> list[str]:
+        module = self._load()
+        return dir(module)

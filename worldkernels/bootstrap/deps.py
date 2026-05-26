@@ -1,4 +1,4 @@
-r"""Provision python deps (pip) and native packages (git clone) with progress."""
+r"""Provision python deps (uv) and native packages (git clone) with progress."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ def provision_python_deps(
     card: "ModelCard",
     progress: "ProgressController | None" = None,
     allow_fetch: bool = True,
+    target_python: str | None = None,
 ) -> None:
     extra = card.pip_extra
     if extra is None:
@@ -40,13 +41,14 @@ def provision_python_deps(
         return
 
     sentinel = _EXTRA_SENTINELS.get(extra, extra)
-    try:
-        importlib.import_module(sentinel)
-        if progress is not None:
-            progress.event("deps", "skipped", f"{extra} already installed")
-        return
-    except ImportError:
-        pass
+    if target_python is None:
+        try:
+            importlib.import_module(sentinel)
+            if progress is not None:
+                progress.event("deps", "skipped", f"{extra} already installed")
+            return
+        except ImportError:
+            pass
 
     if not allow_fetch or os.environ.get("WORLDKERNELS_NO_AUTO_INSTALL"):
         raise FetchDisabledError(
@@ -56,24 +58,68 @@ def provision_python_deps(
 
     pkg = f"worldkernels[{extra}]"
     if progress is not None:
-        progress.event("deps", "running", f"pip install '{pkg}' …")
-    log.info("Auto-installing missing dependencies: pip install '%s'", pkg)
+        progress.event("deps", "running", f"installing '{pkg}' …")
+    log.info("Auto-installing missing dependencies: %s", pkg)
 
-    cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", pkg]
-    quiet = progress is not None and progress.mode == "tty"
-    if quiet:
-        cmd.append("--quiet")
-
-    proc = subprocess.run(cmd, check=False, capture_output=quiet, text=True)
-    if proc.returncode != 0:
-        if progress is not None:
-            progress.event("deps", "failed", f"pip install failed (exit {proc.returncode})")
-        if quiet:
-            sys.stderr.write(proc.stdout + "\n" + proc.stderr + "\n")
-        raise RuntimeError(f"pip install '{pkg}' failed (exit {proc.returncode})")
+    install_packages([pkg], target_python=target_python, progress=progress)
 
     if progress is not None:
         progress.event("deps", "done", f"installed {extra}")
+
+
+def install_packages(
+    packages: list[str],
+    target_python: str | None = None,
+    progress: "ProgressController | None" = None,
+    constraints: str | None = None,
+) -> None:
+    r"""Install pip packages into the target python via uv (pip fallback).
+
+    Args:
+        packages: PEP 508 package specs.
+        target_python: Python interpreter to install into (defaults to the current one).
+        progress: Optional progress controller for live status updates.
+        constraints: Optional path to a requirements/lock constraints file.
+    """
+    if not packages:
+        return
+    python_exe = target_python or sys.executable
+    runner = _select_installer()
+    cmd = _build_install_cmd(runner, packages, python_exe, constraints)
+    quiet = progress is not None and progress.mode in ("tty", "quiet", "json", "sink")
+
+    log.debug("Running install: %s", " ".join(cmd))
+    proc = subprocess.run(cmd, check=False, capture_output=quiet, text=True)
+    if proc.returncode != 0:
+        if progress is not None:
+            progress.event("deps", "failed", f"install failed (exit {proc.returncode})")
+        if quiet:
+            sys.stderr.write((proc.stdout or "") + "\n" + (proc.stderr or "") + "\n")
+        raise RuntimeError(
+            f"install failed for {packages!r} via {runner} (exit {proc.returncode})"
+        )
+
+
+def _select_installer() -> str:
+    if shutil.which("uv") is not None:
+        return "uv"
+    return "pip"
+
+
+def _build_install_cmd(
+    runner: str, packages: list[str], python_exe: str, constraints: str | None
+) -> list[str]:
+    if runner == "uv":
+        cmd = ["uv", "pip", "install", "--python", python_exe]
+        if constraints:
+            cmd += ["--constraint", constraints]
+        cmd += packages
+        return cmd
+    cmd = [python_exe, "-m", "pip", "install", "--disable-pip-version-check"]
+    if constraints:
+        cmd += ["--constraint", constraints]
+    cmd += packages
+    return cmd
 
 
 def provision_git_packages(

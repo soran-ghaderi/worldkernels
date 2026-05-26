@@ -1,0 +1,8 @@
+-r common.txt
+# CUDA-target: torch built against CUDA, NVIDIA tooling, flash attention.
+torch>=2.0
+nvidia-ml-py>=12.0
+# CUDA-ABI-coupled (uncomment after pinning to your CUDA version):
+# flash-attn>=2.7
+# xformers>=0.0.27
+# triton>=2.3

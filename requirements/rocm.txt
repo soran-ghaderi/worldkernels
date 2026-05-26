@@ -1,0 +1,4 @@
+-r common.txt
+# ROCm-target: torch+ROCm wheels, hipBLAS-coupled deps.
+# Install torch from https://download.pytorch.org/whl/rocm6.2 (or matching ROCm version).
+torch>=2.0
