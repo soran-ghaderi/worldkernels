@@ -153,13 +153,13 @@ class Rm:
 
 
 @dataclass
-class Doctor:
-    r"""Check system: GPU, deps, plugins, hub, local cache."""
+class CollectEnv:
+    r"""Collect environment info: GPU, deps, plugins, hub, local cache, isolated envs."""
 
     def run(self) -> None:
-        from worldkernels.cli.doctor import run_doctor
+        from worldkernels.cli.collect_env import run_collect_env
 
-        run_doctor()
+        run_collect_env()
 
 
 @dataclass
@@ -254,13 +254,32 @@ class BenchProfile:
 
 
 @dataclass
-class PluginList:
+class Plugins:
     r"""List discovered entry_point plugins."""
 
     def run(self) -> None:
-        from worldkernels.cli.plugin import run_list
+        from worldkernels.cli.plugins import run_list
 
         run_list()
+
+
+BenchCommand = Union[
+    Annotated[BenchLatency, tyro.conf.subcommand("latency")],
+    Annotated[BenchThroughput, tyro.conf.subcommand("throughput")],
+    Annotated[BenchStartup, tyro.conf.subcommand("startup")],
+    Annotated[BenchVRAM, tyro.conf.subcommand("vram")],
+    Annotated[BenchProfile, tyro.conf.subcommand("profile")],
+]
+
+
+@dataclass
+class Bench:
+    r"""Benchmarks: latency, throughput, startup, vram, profile."""
+
+    cmd: BenchCommand
+
+    def run(self) -> None:
+        self.cmd.run()
 
 
 def _extra_kwargs(num_inference_steps: int | None, guidance_scale: float | None) -> dict:
@@ -279,14 +298,10 @@ Command = tyro.conf.SuppressFixed[
         Annotated[Pull, tyro.conf.subcommand("pull")],
         Annotated[Models, tyro.conf.subcommand("models")],
         Annotated[Rm, tyro.conf.subcommand("rm")],
-        Annotated[Doctor, tyro.conf.subcommand("doctor")],
+        Annotated[CollectEnv, tyro.conf.subcommand("collect-env")],
         Annotated[ModelInspect, tyro.conf.subcommand("inspect")],
-        Annotated[BenchLatency, tyro.conf.subcommand("bench:latency", prefix_name=False)],
-        Annotated[BenchThroughput, tyro.conf.subcommand("bench:throughput", prefix_name=False)],
-        Annotated[BenchStartup, tyro.conf.subcommand("bench:startup", prefix_name=False)],
-        Annotated[BenchVRAM, tyro.conf.subcommand("bench:vram", prefix_name=False)],
-        Annotated[BenchProfile, tyro.conf.subcommand("bench:profile", prefix_name=False)],
-        Annotated[PluginList, tyro.conf.subcommand("plugin:list", prefix_name=False)],
+        Annotated[Bench, tyro.conf.subcommand("bench")],
+        Annotated[Plugins, tyro.conf.subcommand("plugins")],
     ]
 ]
 
