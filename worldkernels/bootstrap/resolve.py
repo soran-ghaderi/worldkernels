@@ -58,10 +58,25 @@ def resolve(ref: str, variant: str | None = None, ckpt_path: str | None = None) 
         if card is not None:
             return _from_card(card, ref, variant, ckpt_path)
 
+    if _registered_in_worlds(ref):
+        from worldkernels.worlds.hub import ModelCard
+
+        synthetic = ModelCard(adapter=ref, description=f"registry-only adapter: {ref}")
+        return _from_card(synthetic, ref, variant, ckpt_path)
+
     raise ModelNotFoundError(
         f"could not resolve model '{ref}'. "
         f"Try a registered alias (`worldkernels models`) or an HF repo id (org/name)."
     )
+
+
+def _registered_in_worlds(name: str) -> bool:
+    try:
+        from worldkernels.worlds.registry import _REGISTRY
+
+        return name in _REGISTRY
+    except Exception:
+        return False
 
 
 def _from_card(

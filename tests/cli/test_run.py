@@ -10,17 +10,17 @@ from worldkernels.cli.run import _raw_to_arrays, _save_frames, _save_video, run_
 class TestRunSession:
     def test_invalid_output_format_raises(self):
         with pytest.raises(ValueError, match="output-format"):
-            run_session(world="dummy", output_format="bad", device="cpu")
+            run_session(model="dummy", output_format="bad", device="cpu")
 
     def test_default_run_no_output_dir(self, capsys):
-        run_session(world="dummy", steps=2, height=32, width=32, device="cpu")
+        run_session(model="dummy", steps=2, height=32, width=32, device="cpu")
         out = capsys.readouterr().out
         assert "Running 2 steps" in out
         assert "Done. 2 steps" in out
 
     def test_output_dir_saves_frames(self, tmp_path, capsys):
         run_session(
-            world="dummy",
+            model="dummy",
             steps=2,
             height=32,
             width=32,
@@ -34,7 +34,7 @@ class TestRunSession:
     def test_output_video_format(self, tmp_path):
         pytest.importorskip("imageio_ffmpeg")
         run_session(
-            world="dummy",
+            model="dummy",
             steps=2,
             height=32,
             width=32,
@@ -47,7 +47,7 @@ class TestRunSession:
     def test_output_both(self, tmp_path):
         pytest.importorskip("imageio_ffmpeg")
         run_session(
-            world="dummy",
+            model="dummy",
             steps=2,
             height=32,
             width=32,
@@ -60,7 +60,7 @@ class TestRunSession:
 
     def test_decode_false_skips_frames(self, tmp_path):
         run_session(
-            world="dummy",
+            model="dummy",
             steps=2,
             height=32,
             width=32,

@@ -105,12 +105,16 @@ class WorldEngine:
             **kwargs: Forwarded to the world constructor (overrides card defaults).
         """
         from worldkernels.bootstrap import prepare
+        from worldkernels.bootstrap.errors import ModelNotFoundError as _ModelNotFoundError
         from worldkernels.bootstrap.resolve import resolve as _resolve_ref
         from worldkernels.config import WorldConfig as WC
         from worldkernels.runtime.resolver import IsolatedPlan, resolve_install_plan
         from worldkernels.worlds.registry import get_world_class
 
-        resolved = _resolve_ref(model_id, variant=variant, ckpt_path=ckpt_path)
+        try:
+            resolved = _resolve_ref(model_id, variant=variant, ckpt_path=ckpt_path)
+        except _ModelNotFoundError as exc:
+            raise WorldNotFoundError(model_id) from exc
         card = resolved.card
         plan = resolve_install_plan(card, list(self._cards.values()))
 
