@@ -15,12 +15,22 @@ def select_attention_backend(name: str | None = None) -> AttentionBackend:
     r"""Return an attention backend instance.
 
     Args:
-        name: ``"sdpa"`` / ``"flash"``; ``None`` uses the platform default.
-            A requested ``"flash"`` backend silently falls back to SDPA when
-            ``flash-attn`` is not installed.
+        name: ``"sdpa"`` / ``"flash"``. When ``None`` we first consult the
+            active `ForwardContext.attention_backend` (set by `WorldRunner`
+            from `RuntimeConfig.attention_backend`), then fall back to the
+            platform default. A requested ``"flash"`` backend silently falls
+            back to SDPA when ``flash-attn`` is not installed.
     """
     from worldkernels.platforms import current_platform
     from worldkernels.runtime.attention.backends import FlashAttentionBackend, SDPABackend
+
+    if name is None:
+        try:
+            from worldkernels.runtime.forward_context import get_forward_context
+
+            name = get_forward_context().attention_backend
+        except RuntimeError:
+            pass
 
     resolved = name or current_platform().default_attention_backend()
     if resolved == "flash" and FlashAttentionBackend.is_available():
