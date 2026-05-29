@@ -15,7 +15,7 @@ from worldkernels.worker.world_runner import WorldRunner
 if TYPE_CHECKING:
     import torch
 
-    from worldkernels.config import ParallelConfig
+    from worldkernels.config import ParallelConfig, RuntimeConfig
     from worldkernels.core.observation import Observation
     from worldkernels.core.request import StepRequest
     from worldkernels.core.session import LatentState
@@ -37,6 +37,7 @@ class Worker:
         device: str,
         dtype: "torch.dtype",
         parallel_config: "ParallelConfig | None" = None,
+        config: "RuntimeConfig | None" = None,
     ) -> None:
         from worldkernels.config import ParallelConfig
         from worldkernels.distributed import init_distributed, is_initialized
@@ -44,9 +45,10 @@ class Worker:
         self.device = device
         self.dtype = dtype
         self.parallel_config = parallel_config or ParallelConfig()
+        self.config = config
         if not is_initialized():
             init_distributed(self.parallel_config)
-        self.runner = WorldRunner(device, dtype)
+        self.runner = WorldRunner(device, dtype, config=config)
 
     def execute(
         self,

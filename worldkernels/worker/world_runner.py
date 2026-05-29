@@ -15,6 +15,7 @@ from worldkernels.runtime.forward_context import ForwardContext, set_forward_con
 if TYPE_CHECKING:
     import torch
 
+    from worldkernels.config import RuntimeConfig
     from worldkernels.core.observation import Observation
     from worldkernels.core.request import StepRequest
     from worldkernels.core.session import LatentState
@@ -28,12 +29,19 @@ class WorldRunner:
     Args:
         device: Target device string.
         dtype: Compute dtype.
+        config: Runtime config (component toggles); used by the executor.
     """
 
-    def __init__(self, device: str, dtype: "torch.dtype") -> None:
+    def __init__(
+        self,
+        device: str,
+        dtype: "torch.dtype",
+        config: "RuntimeConfig | None" = None,
+    ) -> None:
         self.device = device
         self.dtype = dtype
-        self.executor = Executor(device=device, dtype=dtype)
+        self.config = config
+        self.executor = Executor(device=device, dtype=dtype, config=config)
 
     def run_batch(
         self,

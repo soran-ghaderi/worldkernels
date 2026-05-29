@@ -35,6 +35,7 @@ class Serve:
     device: str = "cuda"
     variant: str | None = None
     ckpt_path: str | None = None
+    profile: str | None = None
     num_inference_steps: int | None = None
     guidance_scale: float | None = None
     no_fetch: bool = False
@@ -55,6 +56,7 @@ class Serve:
             model_kwargs=_extra_kwargs(self.num_inference_steps, self.guidance_scale),
             allow_fetch=not self.no_fetch,
             quiet=self.quiet,
+            profile=self.profile,
         )
 
 
@@ -77,6 +79,7 @@ class Run:
     decode: bool = True
     variant: str | None = None
     ckpt_path: str | None = None
+    profile: str | None = None
     num_inference_steps: int | None = None
     guidance_scale: float | None = None
     prompt: str | None = None
@@ -106,6 +109,7 @@ class Run:
             model_kwargs=_extra_kwargs(self.num_inference_steps, self.guidance_scale),
             allow_fetch=not self.no_fetch,
             quiet=self.quiet,
+            profile=self.profile,
         )
 
 
@@ -160,6 +164,19 @@ class CollectEnv:
         from worldkernels.cli.collect_env import run_collect_env
 
         run_collect_env()
+
+
+@dataclass
+class ConfigShow:
+    r"""Show the resolved runtime config (component toggles) and each flag's source."""
+
+    profile: str | None = None
+    json: bool = False
+
+    def run(self) -> None:
+        from worldkernels.cli.config_cmd import run_config_show
+
+        run_config_show(self.profile, self.json)
 
 
 @dataclass
@@ -299,6 +316,7 @@ Command = tyro.conf.SuppressFixed[
         Annotated[Models, tyro.conf.subcommand("models")],
         Annotated[Rm, tyro.conf.subcommand("rm")],
         Annotated[CollectEnv, tyro.conf.subcommand("collect-env")],
+        Annotated[ConfigShow, tyro.conf.subcommand("config-show")],
         Annotated[ModelInspect, tyro.conf.subcommand("inspect")],
         Annotated[Bench, tyro.conf.subcommand("bench")],
         Annotated[Plugins, tyro.conf.subcommand("plugins")],

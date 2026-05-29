@@ -21,7 +21,7 @@ from worldkernels.core.errors import (
 )
 
 if TYPE_CHECKING:
-    from worldkernels.config import WorldConfig
+    from worldkernels.config import RuntimeConfig, WorldConfig
     from worldkernels.core.session import Session
     from worldkernels.worlds.base import WorldModel
 
@@ -38,6 +38,12 @@ def _default_dtype(device: str) -> torch.dtype:
     return torch.float32
 
 
+def _resolve_dtype(dtype: str, device: str) -> torch.dtype:
+    if dtype == "auto":
+        return _default_dtype(device)
+    return {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[dtype]
+
+
 class WorldEngine:
     r"""GPU-first world-model simulation engine.
 
@@ -49,14 +55,46 @@ class WorldEngine:
 
     def __init__(
         self,
-        device: str = "cuda",
-        max_sessions: int = 4,
-        offload_idle: bool = True,
+        config: "RuntimeConfig | str | None" = None,
+        *,
+        device: str | None = None,
+        max_sessions: int | None = None,
+        offload_idle: bool | None = None,
     ) -> None:
-        self.device = device
-        self.max_sessions = max_sessions
-        self.offload_idle = offload_idle
-        self.dtype = _default_dtype(device)
+        r"""Construct the engine from a `RuntimeConfig` (or profile name).
+
+        Args:
+            config: A `RuntimeConfig`, a profile name (``"baseline"`` etc.), or
+                ``None`` for resolved defaults (honoring ``WK_*`` env vars).
+            device: Back-compat override of ``config.device``.
+            max_sessions: Back-compat override of ``config.max_sessions``.
+            offload_idle: Back-compat override of ``config.offload_idle``.
+        """
+        from worldkernels.config.active import set_active_config
+        from worldkernels.config.profiles import resolve_runtime_config
+        from worldkernels.config.runtime import RuntimeConfig
+
+        if isinstance(config, RuntimeConfig):
+            cfg = config
+        elif isinstance(config, str):
+            cfg, _ = resolve_runtime_config(profile=config)
+        else:
+            cfg, _ = resolve_runtime_config()
+
+        if device is not None:
+            cfg.device = device
+        if max_sessions is not None:
+            cfg.max_sessions = max_sessions
+        if offload_idle is not None:
+            cfg.offload_idle = offload_idle
+
+        self.config = cfg
+        set_active_config(cfg)
+
+        self.device = cfg.device
+        self.max_sessions = cfg.max_sessions
+        self.offload_idle = cfg.offload_idle
+        self.dtype = _resolve_dtype(cfg.dtype, cfg.device)
 
         self._worlds: dict[str, WorldModel] = {}
         self._sessions: dict[str, Session] = {}
@@ -66,14 +104,14 @@ class WorldEngine:
         from worldkernels.scheduler import Scheduler
         from worldkernels.worker import Worker
 
-        self._worker = Worker(device=device, dtype=self.dtype)
-        self._scheduler = Scheduler(self._worker)
+        self._worker = Worker(device=self.device, dtype=self.dtype, parallel_config=cfg.parallel)
+        self._scheduler = Scheduler(self._worker, config=cfg.scheduler)
 
         log.info(
             "WorldEngine initialized: device=%s, dtype=%s, max_sessions=%d",
-            device,
+            self.device,
             self.dtype,
-            max_sessions,
+            self.max_sessions,
         )
 
     def load_model(
@@ -104,18 +142,21 @@ class WorldEngine:
             trust_remote_code: Allow custom code from HF Hub (reserved).
             **kwargs: Forwarded to the world constructor (overrides card defaults).
         """
-        from worldkernels.bootstrap import prepare
         from worldkernels.bootstrap.errors import ModelNotFoundError as _ModelNotFoundError
         from worldkernels.bootstrap.resolve import resolve as _resolve_ref
         from worldkernels.config import WorldConfig as WC
         from worldkernels.runtime.resolver import IsolatedPlan, resolve_install_plan
-        from worldkernels.worlds.registry import get_world_class
 
         try:
             resolved = _resolve_ref(model_id, variant=variant, ckpt_path=ckpt_path)
         except _ModelNotFoundError as exc:
             raise WorldNotFoundError(model_id) from exc
         card = resolved.card
+        if card.isolation == "auto" and self.config.isolation != "auto":
+            import dataclasses
+
+            card = dataclasses.replace(card, isolation=self.config.isolation)
+            resolved = dataclasses.replace(resolved, card=card)
         plan = resolve_install_plan(card, list(self._cards.values()))
 
         if isinstance(plan, IsolatedPlan):

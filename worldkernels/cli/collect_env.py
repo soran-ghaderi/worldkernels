@@ -65,6 +65,19 @@ def run_collect_env() -> None:
     except Exception as exc:
         print(f"  cache scan failed: {exc}")
 
+    print("\nRuntime config (defaults; WK_* env applied):")
+    try:
+        from worldkernels.config.profiles import resolve_runtime_config
+        from worldkernels.config.runtime import ALL_TOGGLE_FIELDS
+
+        cfg, sources = resolve_runtime_config()
+        for f in ALL_TOGGLE_FIELDS:
+            src = sources.get(f, "default")
+            tag = "" if src == "default" else f"  ({src})"
+            print(f"  {f:20s} {getattr(cfg, f)}{tag}")
+    except Exception as exc:
+        print(f"  runtime config load failed: {exc}")
+
     print("\nIsolated envs:")
     try:
         from worldkernels.bootstrap import cache

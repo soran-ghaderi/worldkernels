@@ -14,8 +14,16 @@ from worldkernels.serving.routes import configure_routes
 def create_app(
     server_config: ServerConfig | None = None,
     device: str = "cuda",
+    runtime_config=None,
 ) -> FastAPI:
-    r"""Build the FastAPI application with engine, routes, and metrics wired up."""
+    r"""Build the FastAPI application with engine, routes, and metrics wired up.
+
+    Args:
+        server_config: HTTP-layer config (host/port/auth/CORS/max_sessions).
+        device: Compute device for the engine.
+        runtime_config: Optional `RuntimeConfig` (component toggles). ``None``
+            resolves defaults (honoring ``WK_*`` env vars).
+    """
     cfg = server_config or ServerConfig()
 
     app = FastAPI(
@@ -30,7 +38,7 @@ def create_app(
         allow_headers=["*"],
     )
 
-    engine = WorldEngine(device=device, max_sessions=cfg.max_sessions)
+    engine = WorldEngine(runtime_config, device=device, max_sessions=cfg.max_sessions)
     async_engine = AsyncEngine(engine)
     app.state.engine = engine
     app.state.async_engine = async_engine

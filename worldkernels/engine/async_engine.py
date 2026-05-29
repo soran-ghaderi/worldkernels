@@ -42,6 +42,8 @@ class AsyncEngine:
     def __init__(self, engine: "WorldEngine", *, batch_window: float = 0.005) -> None:
         self.engine = engine
         self.batch_window = batch_window
+        _cfg = getattr(engine, "config", None)
+        self._continuous_batching = getattr(_cfg, "continuous_batching", True)
         self._pending: dict[str, asyncio.Future] = {}
         self._drain_task: asyncio.Task | None = None
         self._closed = False
@@ -119,13 +121,15 @@ class AsyncEngine:
 
     async def _drain_loop(self) -> None:
         scheduler = self.engine._scheduler
+        wait = self.batch_window if self._continuous_batching else 0.0
+        cap = None if self._continuous_batching else 1
         while not self._closed:
-            await asyncio.sleep(self.batch_window)
+            await asyncio.sleep(wait)
             batch = scheduler.pending
             if not batch:
                 continue
             try:
-                results = await asyncio.to_thread(scheduler.run_scheduled)
+                results = await asyncio.to_thread(scheduler.run_scheduled, cap)
             except Exception as exc:  # noqa: BLE001 - surface compute errors to callers
                 self._fail_pending(exc)
                 continue

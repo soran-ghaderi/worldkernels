@@ -18,6 +18,7 @@ from worldkernels.runtime.stages import (
 )
 
 if TYPE_CHECKING:
+    from worldkernels.config import RuntimeConfig
     from worldkernels.core.action import Action
     from worldkernels.core.request import StepRequest
     from worldkernels.core.session import LatentState
@@ -32,6 +33,8 @@ class Executor:
         dtype: Target dtype.
         stage_configs: Per-stage execution configs.
         connector: Inter-stage transport. Defaults to ``LocalConnector``.
+        config: Runtime config (component toggles); gates cuda_graphs /
+            iteration_batching / latent_pool / kv_cache (wired incrementally).
     """
 
     def __init__(
@@ -40,9 +43,11 @@ class Executor:
         dtype: torch.dtype,
         stage_configs: tuple[StageConfig, ...] | None = None,
         connector: StageConnector | None = None,
+        config: "RuntimeConfig | None" = None,
     ) -> None:
         self.device = device
         self.dtype = dtype
+        self.config = config
         self.stage_configs = {
             cfg.stage_type: cfg for cfg in (stage_configs or DEFAULT_PIPELINE_STAGES)
         }

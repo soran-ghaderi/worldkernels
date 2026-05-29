@@ -37,6 +37,11 @@ def regionally_compile(
     """
     import torch
 
+    from worldkernels.config.active import get_active_config
+
+    if not get_active_config().torch_compile:
+        return module
+
     attrs = repeated_block_attrs or getattr(module, "_repeated_blocks", None)
     if not attrs:
         return torch.compile(module, mode=mode)  # type: ignore[return-value]

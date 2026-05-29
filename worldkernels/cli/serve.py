@@ -18,18 +18,21 @@ def run_serve(
     model_kwargs: dict[str, Any] | None = None,
     allow_fetch: bool = True,
     quiet: bool = False,
+    profile: str | None = None,
 ) -> None:
     import uvicorn
 
     from worldkernels.bootstrap import ProgressController
+    from worldkernels.config import resolve_runtime_config
     from worldkernels.core.config import ServerConfig
     from worldkernels.serving.server import create_app
 
     if quiet:
         os.environ["WORLDKERNELS_QUIET"] = "1"
 
+    runtime_config, _ = resolve_runtime_config(profile=profile)
     cfg = ServerConfig(host=host, port=port, max_sessions=max_sessions, api_key=api_key)
-    app = create_app(cfg, device=device)
+    app = create_app(cfg, device=device, runtime_config=runtime_config)
 
     if model is not None:
         from worldkernels.engine import WorldEngine

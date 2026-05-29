@@ -85,21 +85,29 @@ class Scheduler:
         r"""Enqueue a step request for the next scheduling round."""
         self._queue.append(request)
 
-    def schedule(self) -> list[CompatibilityGroup]:
-        r"""Drain the queue into compatibility-group batches."""
+    def schedule(self, max_batch_size: int | None = None) -> list[CompatibilityGroup]:
+        r"""Drain the queue into compatibility-group batches.
+
+        Args:
+            max_batch_size: Override the configured cap. ``1`` collapses batching
+                (one request per group) — used when ``continuous_batching`` is off.
+        """
         if not self._queue:
             return []
-        groups = group_requests(self._queue, max_batch_size=self.config.max_batch_size)
+        cap = max_batch_size if max_batch_size is not None else self.config.max_batch_size
+        groups = group_requests(self._queue, max_batch_size=cap)
         self._queue.clear()
         return groups
 
-    def run_scheduled(self) -> dict[str, tuple["LatentState", "Observation"]]:
+    def run_scheduled(
+        self, max_batch_size: int | None = None
+    ) -> dict[str, tuple["LatentState", "Observation"]]:
         r"""Schedule pending requests, dispatch each group batched, and collect results.
 
         Returns a mapping from ``session_id`` to ``(new_state, observation)``.
         """
         results: dict[str, tuple[LatentState, Observation]] = {}
-        for group in self.schedule():
+        for group in self.schedule(max_batch_size=max_batch_size):
             outputs = self.worker.execute(group.requests)
             for request, output in zip(group.requests, outputs):
                 results[request.session_id] = output
