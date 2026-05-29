@@ -45,6 +45,21 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
     async def list_worlds() -> dict[str, Any]:
         return {"worlds": engine.list_worlds()}
 
+    @router.get("/config", tags=["config"], dependencies=deps)
+    async def get_config() -> dict[str, Any]:
+        from worldkernels.config.profiles import resolve_runtime_config
+        from worldkernels.config.runtime import ALL_TOGGLE_FIELDS
+
+        _, sources = resolve_runtime_config()
+        cfg = engine.config
+        return {
+            "config": {
+                f: {"value": getattr(cfg, f), "source": sources.get(f, "default")}
+                for f in ("device", "max_sessions", *ALL_TOGGLE_FIELDS)
+            },
+            "tiers": engine.list_tiers(),
+        }
+
     @router.post("/worlds", tags=["worlds"], status_code=201, dependencies=deps)
     async def load_model(req: LoadModelRequest) -> dict[str, str]:
         try:
@@ -133,7 +148,9 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
             initial_prompt=req.initial_prompt,
         )
         try:
-            sess = await async_engine.create_session(req.world, config=config, seed=req.seed)
+            sess = await async_engine.create_session(
+                req.world, config=config, seed=req.seed, overrides=req.overrides
+            )
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         except SessionLimitError as exc:
@@ -220,6 +237,7 @@ class CreateSessionRequest(BaseModel):
     frames_per_step: int = 8
     initial_prompt: str | None = None
     seed: int | None = None
+    overrides: dict[str, Any] | None = None
 
 
 class StepRequest(BaseModel):

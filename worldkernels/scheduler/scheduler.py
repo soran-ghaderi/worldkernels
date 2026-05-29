@@ -65,6 +65,7 @@ class Scheduler:
         modalities: list[str],
         step_index: int,
         decode: bool = True,
+        overrides: dict | None = None,
     ) -> tuple["LatentState", "Observation"]:
         r"""Dispatch one simulation step synchronously and return its result."""
         from worldkernels.core.request import StepRequest
@@ -77,6 +78,7 @@ class Scheduler:
             modalities=list(modalities),
             step_index=step_index,
             decode=decode,
+            overrides=overrides,
         )
         (result,) = self.worker.execute([request])
         return result

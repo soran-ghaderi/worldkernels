@@ -19,6 +19,7 @@ def run_serve(
     allow_fetch: bool = True,
     quiet: bool = False,
     profile: str | None = None,
+    overrides: dict | None = None,
 ) -> None:
     import uvicorn
 
@@ -30,7 +31,7 @@ def run_serve(
     if quiet:
         os.environ["WORLDKERNELS_QUIET"] = "1"
 
-    runtime_config, _ = resolve_runtime_config(profile=profile)
+    runtime_config, _ = resolve_runtime_config(profile=profile, cli_overrides=overrides)
     cfg = ServerConfig(host=host, port=port, max_sessions=max_sessions, api_key=api_key)
     app = create_app(cfg, device=device, runtime_config=runtime_config)
 

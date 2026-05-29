@@ -28,9 +28,11 @@ def run_session(
     allow_fetch: bool = True,
     quiet: bool = False,
     profile: str | None = None,
+    overrides: dict | None = None,
 ) -> None:
     from worldkernels import Action, WorldConfig, WorldEngine
     from worldkernels.bootstrap import ProgressController
+    from worldkernels.config import resolve_runtime_config
 
     if quiet:
         os.environ["WORLDKERNELS_QUIET"] = "1"
@@ -39,7 +41,8 @@ def run_session(
     if output_format not in valid_formats:
         raise ValueError(f"--output-format must be one of {valid_formats}, got '{output_format}'")
 
-    wk = WorldEngine(profile, device=device) if profile else WorldEngine(device=device)
+    runtime_config, _ = resolve_runtime_config(profile=profile, cli_overrides=overrides)
+    wk = WorldEngine(runtime_config, device=device)
     with ProgressController(mode="quiet" if quiet else "plain") as progress:
         wk.load_model(
             model,

@@ -18,9 +18,13 @@ def bench_env(
     height: int = 64,
     width: int = 64,
     num_sessions: int = 1,
+    profile: str | None = None,
 ) -> Generator[tuple[WorldEngine, list[Session]], None, None]:
     r"""Shared setup/teardown for benchmark commands."""
-    wk = WorldEngine(device=device, max_sessions=max_sessions)
+    if profile is not None:
+        wk = WorldEngine(profile, device=device, max_sessions=max_sessions)
+    else:
+        wk = WorldEngine(device=device, max_sessions=max_sessions)
     wk.load_model(world)
     world_key = world.split("/")[-1]
     config = WorldConfig(height=height, width=width, frames_per_step=1)
@@ -33,8 +37,10 @@ def bench_env(
         wk.shutdown()
 
 
-def run_latency(world: str, steps: int, height: int, width: int, device: str) -> None:
-    with bench_env(world, device, height=height, width=width) as (_, sessions):
+def run_latency(
+    world: str, steps: int, height: int, width: int, device: str, profile: str | None = None
+) -> None:
+    with bench_env(world, device, height=height, width=width, profile=profile) as (_, sessions):
         session = sessions[0]
         latencies: list[float] = []
         for _ in range(steps):
@@ -53,7 +59,13 @@ def run_latency(world: str, steps: int, height: int, width: int, device: str) ->
 
 
 def run_throughput(
-    world: str, num_sessions: int, steps: int, height: int, width: int, device: str
+    world: str,
+    num_sessions: int,
+    steps: int,
+    height: int,
+    width: int,
+    device: str,
+    profile: str | None = None,
 ) -> None:
     with bench_env(
         world,
@@ -62,6 +74,7 @@ def run_throughput(
         height=height,
         width=width,
         num_sessions=num_sessions,
+        profile=profile,
     ) as (_, sessions):
         t0 = time.perf_counter()
         for _ in range(steps):

@@ -36,6 +36,13 @@ class Serve:
     variant: str | None = None
     ckpt_path: str | None = None
     profile: str | None = None
+    set_overrides: Annotated[
+        str | None,
+        tyro.conf.arg(
+            name="set",
+            help="Comma-separated runtime overrides (e.g. teacache=off,attention_backend=sdpa).",
+        ),
+    ] = None
     num_inference_steps: int | None = None
     guidance_scale: float | None = None
     no_fetch: bool = False
@@ -57,6 +64,7 @@ class Serve:
             allow_fetch=not self.no_fetch,
             quiet=self.quiet,
             profile=self.profile,
+            overrides=_parse_set(self.set_overrides),
         )
 
 
@@ -80,6 +88,13 @@ class Run:
     variant: str | None = None
     ckpt_path: str | None = None
     profile: str | None = None
+    set_overrides: Annotated[
+        str | None,
+        tyro.conf.arg(
+            name="set",
+            help="Comma-separated runtime overrides (e.g. teacache=off,attention_backend=sdpa).",
+        ),
+    ] = None
     num_inference_steps: int | None = None
     guidance_scale: float | None = None
     prompt: str | None = None
@@ -110,6 +125,7 @@ class Run:
             allow_fetch=not self.no_fetch,
             quiet=self.quiet,
             profile=self.profile,
+            overrides=_parse_set(self.set_overrides),
         )
 
 
@@ -202,11 +218,14 @@ class BenchLatency:
     height: int = 64
     width: int = 64
     device: str = "cpu"
+    profile: str | None = None
 
     def run(self) -> None:
         from worldkernels.cli.bench import run_latency
 
-        run_latency(self.world, self.steps, self.height, self.width, self.device)
+        run_latency(
+            self.world, self.steps, self.height, self.width, self.device, profile=self.profile
+        )
 
 
 @dataclass
@@ -219,11 +238,15 @@ class BenchThroughput:
     height: int = 64
     width: int = 64
     device: str = "cpu"
+    profile: str | None = None
 
     def run(self) -> None:
         from worldkernels.cli.bench import run_throughput
 
-        run_throughput(self.world, self.sessions, self.steps, self.height, self.width, self.device)
+        run_throughput(
+            self.world, self.sessions, self.steps, self.height, self.width, self.device,
+            profile=self.profile,
+        )
 
 
 @dataclass
@@ -297,6 +320,36 @@ class Bench:
 
     def run(self) -> None:
         self.cmd.run()
+
+
+_BOOL_TRUE = {"1", "true", "yes", "on"}
+_BOOL_FALSE = {"0", "false", "no", "off"}
+
+
+def _parse_set(value: str | None) -> dict | None:
+    r"""Parse a ``--set k=v,k=v`` string into a RuntimeConfig overrides dict.
+
+    Bools accept ``on``/``off``/``true``/``false``/``1``/``0``; enums pass through
+    as strings. Validation happens in ``resolve_runtime_config``.
+    """
+    if not value:
+        return None
+    out: dict = {}
+    for pair in value.split(","):
+        if not pair.strip():
+            continue
+        if "=" not in pair:
+            raise ValueError(f"--set entry must be key=value, got {pair!r}")
+        key, val = pair.split("=", 1)
+        key, val = key.strip(), val.strip()
+        lv = val.lower()
+        if lv in _BOOL_TRUE:
+            out[key] = True
+        elif lv in _BOOL_FALSE:
+            out[key] = False
+        else:
+            out[key] = val
+    return out
 
 
 def _extra_kwargs(num_inference_steps: int | None, guidance_scale: float | None) -> dict:
