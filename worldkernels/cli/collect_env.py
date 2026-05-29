@@ -33,7 +33,10 @@ def run_collect_env() -> None:
                 free, total = torch.cuda.mem_get_info(i)
                 gb_free = free / (1024**3)
                 gb_total = total / (1024**3)
-                print(f"  cuda:{i}  {name}  sm_{cap[0]}{cap[1]}  {gb_free:.1f}/{gb_total:.1f} GB free")
+                print(
+                    f"  cuda:{i}  {name}  sm_{cap[0]}{cap[1]}  "
+                    f"{gb_free:.1f}/{gb_total:.1f} GB free"
+                )
         else:
             print("  no cuda available")
     except Exception as exc:

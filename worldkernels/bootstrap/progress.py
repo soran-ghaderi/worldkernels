@@ -12,7 +12,6 @@ from __future__ import annotations
 import json as _json
 import logging
 import os
-import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
@@ -122,7 +121,11 @@ class ProgressController:
         if self.mode == "tty" and self._console is not None:
             from rich.text import Text
 
-            mark = Text("✓ ready", style="bold green") if success else Text("✗ failed", style="bold red")
+            mark = (
+                Text("✓ ready", style="bold green")
+                if success
+                else Text("✗ failed", style="bold red")
+            )
             if summary:
                 self._console.print(mark, Text(f"  {summary}", style="dim"))
             else:
@@ -130,7 +133,8 @@ class ProgressController:
         elif self.mode == "plain":
             print(("✓ ready " if success else "✗ failed ") + summary, flush=True)
         elif self.mode == "json":
-            print(_json.dumps({"phase": "ready" if success else "failed", "message": summary}), flush=True)
+            event = {"phase": "ready" if success else "failed", "message": summary}
+            print(_json.dumps(event), flush=True)
 
     def _render(self):
         from rich.table import Table

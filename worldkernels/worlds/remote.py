@@ -14,7 +14,6 @@ import logging
 import os
 import signal
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -75,7 +74,11 @@ class RemoteWorld(InteractiveWorldModel):
             py_str = "python"
         else:
             py_str = str(py)
-        cmd = [py_str, "-m", self.worker_module, "--socket", str(socket_path), "--log-level", self.log_level]
+        cmd = [
+            py_str, "-m", self.worker_module,
+            "--socket", str(socket_path),
+            "--log-level", self.log_level,
+        ]
         log.info("spawning worker: %s", " ".join(cmd))
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
@@ -157,7 +160,9 @@ class RemoteWorld(InteractiveWorldModel):
 
     def create_initial_state(self, config: "WorldConfig", seed: int) -> LatentState:
         handle = self._ensure_worker()
-        res = handle.client.call("create_initial_state", config=_config_to_dict(config), seed=int(seed))
+        res = handle.client.call(
+            "create_initial_state", config=_config_to_dict(config), seed=int(seed)
+        )
         return LatentState(data=_RemoteRef(self, res["handle"]), device=self.device)
 
     def profile_vram(self, config: "WorldConfig") -> float:

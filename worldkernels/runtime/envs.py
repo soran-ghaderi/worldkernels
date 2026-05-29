@@ -71,7 +71,7 @@ def materialize_env(
     if shutil.which("uv") is None:
         raise RuntimeError(
             "uv not found on PATH; required for per-model env materialization. "
-            "uv is a core dependency of worldkernels — try `pip install --force-reinstall worldkernels`."
+            "uv is a core worldkernels dep — try `pip install --force-reinstall worldkernels`."
         )
 
     if progress is not None:

@@ -5,7 +5,12 @@ from __future__ import annotations
 import os
 
 
-def run_pull(model: str, variant: str | None = None, ckpt_path: str | None = None, quiet: bool = False) -> None:
+def run_pull(
+    model: str,
+    variant: str | None = None,
+    ckpt_path: str | None = None,
+    quiet: bool = False,
+) -> None:
     from worldkernels.bootstrap import ProgressController, prepare
 
     if quiet:
@@ -31,7 +36,10 @@ def run_models(show_all: bool = False) -> None:
 
     manifests = cache.list_manifests()
     if not manifests:
-        print("No models cached locally. Use `worldkernels pull <model>` or `worldkernels models --all`.")
+        print(
+            "No models cached locally. "
+            "Use `worldkernels pull <model>` or `worldkernels models --all`."
+        )
         return
 
     print(f"Local models (cached under {cache.home()}):")

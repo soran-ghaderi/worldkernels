@@ -21,9 +21,8 @@ from worldkernels.worlds import (
 
 @pytest.fixture(autouse=True)
 def _no_pip_install(monkeypatch):
-    r"""Hard guard: under no circumstances may a test trigger pip/uv install, git clone, HF download, or venv materialization."""
-    from worldkernels.bootstrap import deps as _deps
-    from worldkernels.bootstrap import weights as _weights
+    r"""Block pip/uv install, git clone, HF download, and venv materialization in tests."""
+    from worldkernels.bootstrap import deps as _deps, weights as _weights
     from worldkernels.runtime import envs as _envs
 
     def _block_pip(card, progress=None, allow_fetch=True, target_python=None):
