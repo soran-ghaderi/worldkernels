@@ -57,6 +57,14 @@ class Executor:
         cfg = self.stage_configs.get(stage_type)
         return cfg is None or cfg.enabled
 
+    def _iteration_batching_enabled(self) -> bool:
+        try:
+            from worldkernels.runtime.forward_context import get_forward_context
+
+            return get_forward_context().iteration_batching
+        except RuntimeError:
+            return bool(self.config and self.config.iteration_batching)
+
     # ---- per-stage execution ---------------------------------------------
 
     @torch.no_grad()
@@ -86,9 +94,18 @@ class Executor:
 
         Treats ``transition()`` as opaque; the world's ``transition_mode``
         determines internal behavior (bidirectional vs causal vs hybrid).
+        When ``iteration_batching`` is on and the world supports it, drives
+        ``transition_iter`` and uses the final yielded state — opening the
+        seam for sessions to join a batch mid-denoise.
         """
         t0 = time.perf_counter()
-        new_state = world.transition(state, action_encoded)
+        iter_batch_on = self._iteration_batching_enabled()
+        if iter_batch_on and getattr(world, "supports_iteration_batching", False):
+            new_state = state
+            for new_state in world.transition_iter(state, action_encoded):
+                pass
+        else:
+            new_state = world.transition(state, action_encoded)
         elapsed = (time.perf_counter() - t0) * 1000.0
         return StageOutput(
             stage_type=StageType.TRANSITION,

@@ -44,9 +44,13 @@ class AsyncEngine:
         self.batch_window = batch_window
         _cfg = getattr(engine, "config", None)
         self._continuous_batching = getattr(_cfg, "continuous_batching", True)
+        self._offload_idle = getattr(_cfg, "offload_idle", False)
+        self._compute_device = getattr(engine, "device", "cuda")
         self._pending: dict[str, asyncio.Future] = {}
         self._drain_task: asyncio.Task | None = None
         self._closed = False
+        self.offload_count = 0
+        self.restore_count = 0
 
     async def load_model(self, model_id: str, **kwargs: Any) -> None:
         await asyncio.to_thread(self.engine.load_model, model_id, **kwargs)
@@ -59,8 +63,11 @@ class AsyncEngine:
         world: str,
         config: "WorldConfig | None" = None,
         seed: int | None = None,
+        overrides: dict | None = None,
     ) -> "Session":
-        session = await asyncio.to_thread(self.engine.create_session, world, config, seed)
+        session = await asyncio.to_thread(
+            self.engine.create_session, world, config, seed, overrides
+        )
         metrics.set_active_sessions(len(self.engine.list_sessions()))
         return session
 
@@ -88,6 +95,10 @@ class AsyncEngine:
             raise SessionPausedError(session_id)
         if session_id in self._pending:
             raise RuntimeError(f"a step is already in flight for session {session_id!r}")
+
+        if self._offload_idle and session.state.device != self._compute_device:
+            session.state = session.state.to(self._compute_device)
+            self.restore_count += 1
 
         self._ensure_drain_loop()
         future: asyncio.Future = asyncio.get_running_loop().create_future()
@@ -136,6 +147,8 @@ class AsyncEngine:
             metrics.observe_batch(batch)
             for session_id, (new_state, obs) in results.items():
                 self._resolve(session_id, new_state, obs)
+            if self._offload_idle:
+                self._offload_non_active(active=set(results.keys()))
 
     def _fail_pending(self, exc: BaseException) -> None:
         r"""Fail every awaiting step with ``exc`` rather than hang on a dead batch."""
@@ -143,6 +156,17 @@ class AsyncEngine:
             if not future.done():
                 future.set_exception(exc)
         self._pending.clear()
+
+    def _offload_non_active(self, active: set[str]) -> None:
+        for sid, session in self.engine._sessions.items():
+            if sid in active:
+                continue
+            ov = session.overrides or {}
+            if ov.get("offload_idle") is False:
+                continue
+            if session.state.device != "cpu":
+                session.state = session.state.to("cpu")
+                self.offload_count += 1
 
     def _resolve(self, session_id: str, new_state: Any, obs: "Observation") -> None:
         session = self.engine.get_session(session_id)
