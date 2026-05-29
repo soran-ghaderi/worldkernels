@@ -26,6 +26,10 @@ class ForwardContext:
         attn_metadata: Backend-specific attention state (KV block tables,
             sequence lengths) for the current batch.
         cache_backend: Active denoise-step cache (e.g. TeaCache), or ``None``.
+        pool: Active per-runner buffer pool (`LatentPool`), or ``None``.
+        attention_backend: Resolved attention backend name (``"flash"`` /
+            ``"sdpa"``) when the runtime forces a choice; ``None`` lets the
+            selector fall through to the platform default.
         stream: Current compute CUDA stream, or ``None`` on CPU.
         sp_world_size: Sequence-parallel world size for the active forward.
         sp_padding: Sequence padding added to make the length SP-divisible.
@@ -34,6 +38,9 @@ class ForwardContext:
 
     attn_metadata: Any = None
     cache_backend: Any = None
+    pool: Any = None
+    attention_backend: str | None = None
+    iteration_batching: bool = True
     stream: Any = None
     sp_world_size: int = 1
     sp_padding: int = 0

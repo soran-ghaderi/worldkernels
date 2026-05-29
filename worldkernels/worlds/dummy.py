@@ -7,7 +7,7 @@ Returns random noise with no real weights or compute. Reference template for
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 import torch
 
@@ -38,6 +38,7 @@ class DummyWorld(InteractiveWorldModel):
     transition_mode = TransitionMode.BIDIRECTIONAL
     supports_streaming = False
     supports_kv_cache = False
+    supports_iteration_batching = True
 
     def __init__(self) -> None:
         self.device: str = "cpu"
@@ -48,6 +49,8 @@ class DummyWorld(InteractiveWorldModel):
         self.device = device
         self.dtype = dtype
         self._initialized = True
+        # tiny "weights" the runtime quantization gate can attach to
+        self._quant_target = torch.nn.Linear(8, 8).to(device=device)
 
     def warmup(self, config: WorldConfig) -> None:
         _ = self.create_initial_state(config, seed=0)
@@ -56,8 +59,44 @@ class DummyWorld(InteractiveWorldModel):
         return torch.randn(1, _LATENT_C, device=self.device, dtype=self.dtype)
 
     def transition(self, state: LatentState, action_encoded: torch.Tensor) -> LatentState:
-        noise = torch.randn_like(state.data) * 0.1
-        return LatentState(data=state.data + noise, device=state.device)
+        pool, cache = _runtime_features()
+
+        if cache is not None:
+            cache.should_compute(state.data)
+
+        if pool is not None:
+            noise = pool.acquire(state.data.shape, state.data.dtype)
+            torch.randn(*state.data.shape, out=noise)
+            noise.mul_(0.1)
+            new_data = state.data + noise
+            pool.release(noise)
+        else:
+            new_data = state.data + torch.randn_like(state.data) * 0.1
+
+        return LatentState(data=new_data, device=state.device)
+
+    def transition_iter(
+        self, state: LatentState, action_encoded: torch.Tensor
+    ) -> Iterator[LatentState]:
+        r"""Yield 3 intermediate states — the iteration-batching seam.
+
+        Uses the runtime pool + cache via the active `ForwardContext` so the
+        same toggles apply on either dispatch path.
+        """
+        pool, cache = _runtime_features()
+        cur = state.data
+        for _ in range(3):
+            if cache is not None:
+                cache.should_compute(cur)
+            if pool is not None:
+                noise = pool.acquire(cur.shape, cur.dtype)
+                torch.randn(*cur.shape, out=noise)
+                noise.mul_(0.033)
+                cur = cur + noise
+                pool.release(noise)
+            else:
+                cur = cur + torch.randn_like(cur) * 0.033
+            yield LatentState(data=cur, device=state.device)
 
     def decode_observation(self, state: LatentState, modalities: list[str]) -> Observation:
         t0 = time.perf_counter()
@@ -96,3 +135,14 @@ class DummyWorld(InteractiveWorldModel):
             self.device
         )
         return LatentState(data=data, device=self.device)
+
+
+def _runtime_features() -> tuple["object | None", "object | None"]:
+    r"""Return (pool, cache) from the active ForwardContext, or (None, None)."""
+    try:
+        from worldkernels.runtime.forward_context import get_forward_context
+
+        ctx = get_forward_context()
+    except RuntimeError:
+        return None, None
+    return getattr(ctx, "pool", None), getattr(ctx, "cache_backend", None)

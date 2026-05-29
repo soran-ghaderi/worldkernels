@@ -100,11 +100,18 @@ class WorldEngine:
         self._sessions: dict[str, Session] = {}
         self._tiers: dict[str, str] = {}
         self._cards: dict[str, Any] = {}
+        self.trajectory_cache = None
+        if cfg.trajectory_cache:
+            from worldkernels.runtime.memory.trajectory_cache import TrajectoryCache
+
+            self.trajectory_cache = TrajectoryCache()
 
         from worldkernels.scheduler import Scheduler
         from worldkernels.worker import Worker
 
-        self._worker = Worker(device=self.device, dtype=self.dtype, parallel_config=cfg.parallel)
+        self._worker = Worker(
+            device=self.device, dtype=self.dtype, parallel_config=cfg.parallel, config=cfg
+        )
         self._scheduler = Scheduler(self._worker, config=cfg.scheduler)
 
         log.info(
@@ -174,6 +181,18 @@ class WorldEngine:
             except Exception:
                 pass
             raise WorldAlreadyLoadedError(key)
+
+        if getattr(world, "supports_kv_cache", False) and self.config.kv_cache_paged:
+            self._worker.runner.ensure_kv_cache(
+                frames_per_block=self.config.cache.block_frames,
+            )
+
+        if self.config.quantization != "none":
+            target = getattr(world, "_quant_target", None)
+            if target is not None:
+                from worldkernels.runtime.quantization.registry import QuantizationRegistry
+
+                QuantizationRegistry().apply(target, self.config.quantization)
 
         try:
             world.warmup(getattr(world, "default_config", None) or WC())
@@ -281,15 +300,35 @@ class WorldEngine:
         world: str,
         config: WorldConfig | None = None,
         seed: int | None = None,
+        overrides: dict | Any = None,
     ) -> Session:
-        r"""Create a new simulation session bound to a loaded world model."""
+        r"""Create a new simulation session bound to a loaded world model.
+
+        Args:
+            overrides: `SessionOverrides` or ``{flag: value}`` — flips a subset
+                of toggles for this session only (`SESSION_OVERRIDE_FIELDS`).
+                Bake-time flags (torch_compile, dtype, quantization,
+                cuda_graphs, kv_cache_paged, latent_pool) are ignored with a
+                ``log.warning`` since they can't change after init/warmup.
+        """
         from worldkernels.config import WorldConfig as WC
+        from worldkernels.config.runtime import SESSION_OVERRIDE_FIELDS
         from worldkernels.core.session import Session
 
         if world not in self._worlds:
             raise WorldNotFoundError(world)
         if len(self._sessions) >= self.max_sessions:
             raise SessionLimitError(self.max_sessions)
+
+        ov = _normalize_overrides(overrides)
+        if ov is not None:
+            for k in list(ov):
+                if k not in SESSION_OVERRIDE_FIELDS:
+                    log.warning(
+                        "ignoring session override %r: not in the per-session-safe subset",
+                        k,
+                    )
+                    ov.pop(k)
 
         cfg = config or WC()
         actual_seed = seed if seed is not None else 0
@@ -309,6 +348,7 @@ class WorldEngine:
             seed=actual_seed,
             _world=world_instance,
             _scheduler=self._scheduler,
+            overrides=ov,
         )
         self._sessions[session.session_id] = session
         log.info("Created session: %s (world=%s)", session.session_id, world)
@@ -350,6 +390,19 @@ class WorldEngine:
         r"""Return the isolation tier (``"shared"`` / ``"isolated"``) for a loaded model."""
         return self._tiers.get(name)
 
+    def lookup_trajectory_prefix(self, action_hashes: list[str]):
+        r"""Return the longest cached prefix of ``action_hashes``, or ``None`` if disabled."""
+        if self.trajectory_cache is None:
+            return None
+        return self.trajectory_cache.match(action_hashes)
+
+    def cache_trajectory(self, action_hashes: list[str], block_ids: list[int]) -> bool:
+        r"""Insert an action-history → block-id mapping; ``False`` if cache is off."""
+        if self.trajectory_cache is None:
+            return False
+        self.trajectory_cache.insert(action_hashes, block_ids)
+        return True
+
     def list_tiers(self) -> dict[str, str]:
         return dict(self._tiers)
 
@@ -368,6 +421,20 @@ class WorldEngine:
         self._tiers.clear()
         self._cards.clear()
         log.info("WorldEngine shut down.")
+
+
+def _normalize_overrides(value) -> dict | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if v is not None}
+    import dataclasses
+
+    if dataclasses.is_dataclass(value):
+        return {k: v for k, v in dataclasses.asdict(value).items() if v is not None}
+    raise TypeError(
+        f"overrides must be dict, SessionOverrides, or None; got {type(value).__name__}"
+    )
 
 
 def _emit_tier_metric(model_id: str, tier: str) -> None:
