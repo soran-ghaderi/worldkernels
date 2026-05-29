@@ -244,7 +244,12 @@ class BenchThroughput:
         from worldkernels.cli.bench import run_throughput
 
         run_throughput(
-            self.world, self.sessions, self.steps, self.height, self.width, self.device,
+            self.world,
+            self.sessions,
+            self.steps,
+            self.height,
+            self.width,
+            self.device,
             profile=self.profile,
         )
 

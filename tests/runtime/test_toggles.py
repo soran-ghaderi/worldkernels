@@ -327,8 +327,8 @@ class TestSessionOverrides:
             mid = cache.hits + cache.misses
             s_on.step(Action("null", {}), modalities=["frames"])
             after = cache.hits + cache.misses
-            assert mid == before     # session-off didn't touch the cache
-            assert after > mid       # session-on did
+            assert mid == before  # session-off didn't touch the cache
+            assert after > mid  # session-on did
         finally:
             wk.shutdown()
 

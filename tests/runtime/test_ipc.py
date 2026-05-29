@@ -2,7 +2,6 @@ r"""Tensor IPC: host-shm fallback path (CPU-only)."""
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 

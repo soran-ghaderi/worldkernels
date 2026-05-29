@@ -47,9 +47,7 @@ class TestPrecedence:
         assert sources["torch_compile"] == "profile:baseline"
 
     def test_env_overrides_profile(self):
-        cfg, sources = resolve_runtime_config(
-            profile="baseline", env={"WK_TORCH_COMPILE": "1"}
-        )
+        cfg, sources = resolve_runtime_config(profile="baseline", env={"WK_TORCH_COMPILE": "1"})
         assert cfg.torch_compile is True
         assert sources["torch_compile"] == "env:WK_TORCH_COMPILE"
 

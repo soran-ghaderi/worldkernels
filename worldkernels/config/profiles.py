@@ -71,9 +71,7 @@ def resolve_runtime_config(
 
     if profile:
         if profile not in PROFILES:
-            raise ValueError(
-                f"unknown profile {profile!r}; choices: {sorted(PROFILES)}"
-            )
+            raise ValueError(f"unknown profile {profile!r}; choices: {sorted(PROFILES)}")
         for field_name, value in PROFILES[profile].items():
             setattr(cfg, field_name, value)
             sources[field_name] = f"profile:{profile}"

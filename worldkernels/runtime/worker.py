@@ -38,9 +38,6 @@ def _new_handle() -> str:
 
 
 def _handle_init(state: WorkerState, args: dict[str, Any]) -> dict[str, Any]:
-    import importlib
-
-    import torch
 
     from worldkernels.worlds.registry import get_world_class
 

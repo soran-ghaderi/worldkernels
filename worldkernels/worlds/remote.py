@@ -75,9 +75,13 @@ class RemoteWorld(InteractiveWorldModel):
         else:
             py_str = str(py)
         cmd = [
-            py_str, "-m", self.worker_module,
-            "--socket", str(socket_path),
-            "--log-level", self.log_level,
+            py_str,
+            "-m",
+            self.worker_module,
+            "--socket",
+            str(socket_path),
+            "--log-level",
+            self.log_level,
         ]
         log.info("spawning worker: %s", " ".join(cmd))
         env = os.environ.copy()
@@ -214,9 +218,7 @@ class _RemoteRef:
 def _ref_handle(obj: Any) -> str:
     if isinstance(obj, _RemoteRef):
         return obj.handle
-    raise WorldKernelError(
-        f"remote world expected a server-side handle, got {type(obj).__name__}"
-    )
+    raise WorldKernelError(f"remote world expected a server-side handle, got {type(obj).__name__}")
 
 
 def _unwrap_frame(envelope: dict[str, Any]) -> Any:

@@ -32,7 +32,11 @@ class TestRunServe:
         monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
         with patch("worldkernels.engine.WorldEngine.load_model") as load_mock:
             run_serve(
-                "0.0.0.0", 8000, 1, "k", "cpu",
+                "0.0.0.0",
+                8000,
+                1,
+                "k",
+                "cpu",
                 model="dummy",
                 model_kwargs={"num_inference_steps": 5, "guidance_scale": 3.0},
             )

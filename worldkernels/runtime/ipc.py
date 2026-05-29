@@ -141,8 +141,9 @@ def _share_via_shm(t: Any) -> IpcHandle:
 
 
 def _recv_via_shm(handle: IpcHandle) -> Any:
-    import numpy as np
     from multiprocessing import shared_memory
+
+    import numpy as np
 
     shm = shared_memory.SharedMemory(name=handle.payload["name"])
     dtype = _str_to_numpy_dtype(handle.dtype)

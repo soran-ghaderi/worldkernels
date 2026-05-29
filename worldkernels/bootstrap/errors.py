@@ -16,9 +16,7 @@ class FetchDisabledError(BootstrapError):
 
 class AuthRequiredError(BootstrapError):
     def __init__(self, repo: str) -> None:
-        super().__init__(
-            f"Model '{repo}' is gated. Run `huggingface-cli login` and retry."
-        )
+        super().__init__(f"Model '{repo}' is gated. Run `huggingface-cli login` and retry.")
 
 
 class ModelNotFoundError(BootstrapError):

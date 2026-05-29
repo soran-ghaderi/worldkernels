@@ -95,9 +95,7 @@ def install_packages(
             progress.event("deps", "failed", f"install failed (exit {proc.returncode})")
         if quiet:
             sys.stderr.write((proc.stdout or "") + "\n" + (proc.stderr or "") + "\n")
-        raise RuntimeError(
-            f"install failed for {packages!r} via {runner} (exit {proc.returncode})"
-        )
+        raise RuntimeError(f"install failed for {packages!r} via {runner} (exit {proc.returncode})")
 
 
 def _select_installer() -> str:
