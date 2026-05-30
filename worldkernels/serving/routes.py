@@ -7,10 +7,13 @@ reads touch the underlying `WorldEngine` directly.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import json
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from worldkernels.config import WorldConfig
@@ -42,12 +45,29 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
     async def list_worlds() -> dict[str, Any]:
         return {"worlds": engine.list_worlds()}
 
+    @router.get("/config", tags=["config"], dependencies=deps)
+    async def get_config() -> dict[str, Any]:
+        from worldkernels.config.profiles import resolve_runtime_config
+        from worldkernels.config.runtime import ALL_TOGGLE_FIELDS
+
+        _, sources = resolve_runtime_config()
+        cfg = engine.config
+        return {
+            "config": {
+                f: {"value": getattr(cfg, f), "source": sources.get(f, "default")}
+                for f in ("device", "max_sessions", *ALL_TOGGLE_FIELDS)
+            },
+            "tiers": engine.list_tiers(),
+        }
+
     @router.post("/worlds", tags=["worlds"], status_code=201, dependencies=deps)
     async def load_model(req: LoadModelRequest) -> dict[str, str]:
         try:
             await async_engine.load_model(
                 req.model_id,
                 alias=req.alias,
+                variant=req.variant,
+                ckpt_path=req.ckpt_path,
                 trust_remote_code=req.trust_remote_code,
                 **req.kwargs,
             )
@@ -58,6 +78,46 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
         except WorldInitError as exc:
             raise HTTPException(status_code=500, detail=str(exc))
         return {"status": "loaded", "world": req.alias or req.model_id.split("/")[-1]}
+
+    @router.post("/worlds:stream", tags=["worlds"], dependencies=deps)
+    async def load_model_stream(req: LoadModelRequest) -> StreamingResponse:
+        r"""Stream bootstrap progress as SSE events (phase, status, message, fraction)."""
+        from worldkernels.bootstrap import ProgressController
+
+        queue: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def sink(event: dict[str, Any] | None) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+
+        async def run_load() -> None:
+            try:
+                progress = ProgressController(mode="sink", sink=sink)
+                await asyncio.to_thread(
+                    engine.load_model,
+                    req.model_id,
+                    alias=req.alias,
+                    variant=req.variant,
+                    ckpt_path=req.ckpt_path,
+                    progress=progress,
+                    trust_remote_code=req.trust_remote_code,
+                    **req.kwargs,
+                )
+                sink({"phase": "ready", "status": "done", "message": req.alias or req.model_id})
+            except Exception as exc:
+                sink({"phase": "failed", "status": "failed", "message": str(exc)})
+            sink(None)
+
+        async def event_stream():
+            task = asyncio.create_task(run_load())
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+            await task
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
 
     @router.delete("/worlds/{world_id}", tags=["worlds"], dependencies=deps)
     async def unload_model(world_id: str) -> dict[str, str]:
@@ -88,7 +148,9 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
             initial_prompt=req.initial_prompt,
         )
         try:
-            sess = await async_engine.create_session(req.world, config=config, seed=req.seed)
+            sess = await async_engine.create_session(
+                req.world, config=config, seed=req.seed, overrides=req.overrides
+            )
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         except SessionLimitError as exc:
@@ -159,6 +221,8 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
 class LoadModelRequest(BaseModel):
     model_id: str
     alias: str | None = None
+    variant: str | None = None
+    ckpt_path: str | None = None
     trust_remote_code: bool = False
     kwargs: dict[str, Any] = Field(default_factory=dict)
 
@@ -173,6 +237,7 @@ class CreateSessionRequest(BaseModel):
     frames_per_step: int = 8
     initial_prompt: str | None = None
     seed: int | None = None
+    overrides: dict[str, Any] | None = None
 
 
 class StepRequest(BaseModel):

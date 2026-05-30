@@ -1,13 +1,14 @@
-r"""Headless session runner — load model, step N times, optionally save frames/video."""
+r"""Headless run: bootstrap model, step N times, optionally save frames/video."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 
 def run_session(
-    world: str,
+    model: str,
     steps: int = 10,
     action_type: str = "null",
     height: int = 480,
@@ -21,18 +22,39 @@ def run_session(
     modalities: str = "frames",
     decode: bool = True,
     prompt: str | None = None,
+    variant: str | None = None,
+    ckpt_path: str | None = None,
     model_kwargs: dict[str, Any] | None = None,
+    allow_fetch: bool = True,
+    quiet: bool = False,
+    profile: str | None = None,
+    overrides: dict | None = None,
 ) -> None:
     from worldkernels import Action, WorldConfig, WorldEngine
+    from worldkernels.bootstrap import ProgressController
+    from worldkernels.config import resolve_runtime_config
+
+    if quiet:
+        os.environ["WORLDKERNELS_QUIET"] = "1"
 
     valid_formats = ("frames", "video", "both")
     if output_format not in valid_formats:
         raise ValueError(f"--output-format must be one of {valid_formats}, got '{output_format}'")
 
-    wk = WorldEngine(device=device)
-    world_key = world.split("/")[-1]
-    wk.load_model(world, **(model_kwargs or {}))
+    runtime_config, _ = resolve_runtime_config(profile=profile, cli_overrides=overrides)
+    wk = WorldEngine(runtime_config, device=device)
+    with ProgressController(mode="quiet" if quiet else "plain") as progress:
+        wk.load_model(
+            model,
+            variant=variant,
+            ckpt_path=ckpt_path,
+            progress=progress,
+            allow_fetch=allow_fetch,
+            **(model_kwargs or {}),
+        )
+        progress.finalize(success=True, summary=f"model={model}")
 
+    world_key = next(iter(wk.list_worlds()))
     mods = [m.strip() for m in modalities.split(",")]
     cfg = WorldConfig(height=height, width=width, initial_prompt=prompt or "")
     session = wk.create_session(world_key, config=cfg, seed=seed)
@@ -44,17 +66,13 @@ def run_session(
     save_frames = output_format in ("frames", "both")
     save_video = output_format in ("video", "both")
 
-    print(f"Running {steps} steps on '{world}' ({height}x{width}, device={device})")
+    print(f"Running {steps} steps on '{world_key}' ({height}x{width}, device={device})")
 
     frame_counter = 0
     collected_frames: list[Any] = []
 
     for i in range(steps):
-        obs = session.step(
-            Action(action_type, {}),
-            modalities=mods,
-            decode=decode,
-        )
+        obs = session.step(Action(action_type, {}), modalities=mods, decode=decode)
         print(f"  step {i:4d}  time={obs.generation_time_ms:.1f}ms", end="")
 
         if out and obs.frames is not None:

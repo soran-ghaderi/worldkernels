@@ -1,8 +1,4 @@
-r"""WorldKernels CLI.
-
-Pure schema: each dataclass defines a subcommand's flags.
-Implementations live in sibling modules.
-"""
+r"""WorldKernels CLI: vLLM-style positional verbs."""
 
 from __future__ import annotations
 
@@ -12,208 +8,205 @@ from typing import Annotated, Union
 
 import tyro
 
-# ---------------------------------------------------------------------------
-# serve
-# ---------------------------------------------------------------------------
+_PositionalModel = Annotated[
+    str,
+    tyro.conf.Positional,
+    tyro.conf.arg(help="Model: short alias, HF repo id, HF URL, or local checkpoint path."),
+]
 
 
 @dataclass
 class Serve:
-    r"""Start the WorldKernels HTTP/WebSocket server."""
+    r"""Start the WorldKernels HTTP/WebSocket server.
 
+    With a model arg, the model is bootstrapped (deps, weights) and pre-loaded;
+    without one, the server starts empty and models load on first request.
+    """
+
+    model: Annotated[
+        str | None,
+        tyro.conf.Positional,
+        tyro.conf.arg(help="Model to pre-load (optional)."),
+    ] = None
     host: str = "0.0.0.0"
     port: int = 8000
     max_sessions: int = 4
     api_key: Annotated[str | None, tyro.conf.arg(aliases=("-k",))] = None
     device: str = "cuda"
-    model: str | None = None
+    variant: str | None = None
     ckpt_path: str | None = None
-    experiment: str | None = None
+    profile: str | None = None
+    set_overrides: Annotated[
+        str | None,
+        tyro.conf.arg(
+            name="set",
+            help="Comma-separated runtime overrides (e.g. teacache=off,attention_backend=sdpa).",
+        ),
+    ] = None
     num_inference_steps: int | None = None
     guidance_scale: float | None = None
+    no_fetch: bool = False
+    quiet: Annotated[bool, tyro.conf.arg(aliases=("-q",))] = False
 
     def run(self) -> None:
         from worldkernels.cli.serve import run_serve
 
-        model_kwargs: dict = {}
-        if self.ckpt_path is not None:
-            model_kwargs["ckpt_path"] = self.ckpt_path
-        if self.experiment is not None:
-            model_kwargs["experiment"] = self.experiment
-        if self.num_inference_steps is not None:
-            model_kwargs["num_inference_steps"] = self.num_inference_steps
-        if self.guidance_scale is not None:
-            model_kwargs["guidance_scale"] = self.guidance_scale
-
         run_serve(
-            self.host,
-            self.port,
-            self.max_sessions,
-            self.api_key,
-            self.device,
-            self.model,
-            model_kwargs,
+            host=self.host,
+            port=self.port,
+            max_sessions=self.max_sessions,
+            api_key=self.api_key,
+            device=self.device,
+            model=self.model,
+            variant=self.variant,
+            ckpt_path=self.ckpt_path,
+            model_kwargs=_extra_kwargs(self.num_inference_steps, self.guidance_scale),
+            allow_fetch=not self.no_fetch,
+            quiet=self.quiet,
+            profile=self.profile,
+            overrides=_parse_set(self.set_overrides),
         )
-
-
-# ---------------------------------------------------------------------------
-# run
-# ---------------------------------------------------------------------------
 
 
 @dataclass
 class Run:
-    r"""Run a headless session: load model, step N times, optionally save frames."""
+    r"""Headless run: bootstrap a model, step N times, optionally save frames/video."""
 
-    world: str = "dummy"
+    model: _PositionalModel = "dummy"
     steps: int = 10
     action_type: str = "null"
     height: int = 480
     width: int = 848
     device: str = "cuda"
     seed: int = 0
-    output_dir: str | None = None
+    output_dir: Annotated[str | None, tyro.conf.arg(aliases=("-o",))] = None
     output_format: str = "frames"
     fps: int = 24
     video_codec: str = "libx264"
     modalities: str = "frames"
     decode: bool = True
+    variant: str | None = None
     ckpt_path: str | None = None
-    experiment: str | None = None
+    profile: str | None = None
+    set_overrides: Annotated[
+        str | None,
+        tyro.conf.arg(
+            name="set",
+            help="Comma-separated runtime overrides (e.g. teacache=off,attention_backend=sdpa).",
+        ),
+    ] = None
     num_inference_steps: int | None = None
     guidance_scale: float | None = None
     prompt: str | None = None
+    no_fetch: bool = False
+    quiet: Annotated[bool, tyro.conf.arg(aliases=("-q",))] = False
 
     def run(self) -> None:
         from worldkernels.cli.run import run_session
 
-        model_kwargs: dict = {}
-        if self.ckpt_path is not None:
-            model_kwargs["ckpt_path"] = self.ckpt_path
-        if self.experiment is not None:
-            model_kwargs["experiment"] = self.experiment
-        if self.num_inference_steps is not None:
-            model_kwargs["num_inference_steps"] = self.num_inference_steps
-        if self.guidance_scale is not None:
-            model_kwargs["guidance_scale"] = self.guidance_scale
-
         run_session(
-            self.world,
-            self.steps,
-            self.action_type,
-            self.height,
-            self.width,
-            self.device,
-            self.seed,
-            self.output_dir,
-            self.output_format,
-            self.fps,
-            self.video_codec,
-            self.modalities,
-            self.decode,
-            self.prompt,
-            model_kwargs,
+            model=self.model,
+            steps=self.steps,
+            action_type=self.action_type,
+            height=self.height,
+            width=self.width,
+            device=self.device,
+            seed=self.seed,
+            output_dir=self.output_dir,
+            output_format=self.output_format,
+            fps=self.fps,
+            video_codec=self.video_codec,
+            modalities=self.modalities,
+            decode=self.decode,
+            prompt=self.prompt,
+            variant=self.variant,
+            ckpt_path=self.ckpt_path,
+            model_kwargs=_extra_kwargs(self.num_inference_steps, self.guidance_scale),
+            allow_fetch=not self.no_fetch,
+            quiet=self.quiet,
+            profile=self.profile,
+            overrides=_parse_set(self.set_overrides),
         )
 
 
-# ---------------------------------------------------------------------------
-# doctor
-# ---------------------------------------------------------------------------
+@dataclass
+class Pull:
+    r"""Pre-fetch a model: install deps, clone packages, download weights. No server."""
+
+    model: _PositionalModel = "dummy"
+    variant: str | None = None
+    ckpt_path: str | None = None
+    quiet: Annotated[bool, tyro.conf.arg(aliases=("-q",))] = False
+
+    def run(self) -> None:
+        from worldkernels.cli.pull import run_pull
+
+        run_pull(self.model, variant=self.variant, ckpt_path=self.ckpt_path, quiet=self.quiet)
 
 
 @dataclass
-class Doctor:
-    r"""Check system environment: GPU, dependencies, plugins, world models."""
+class Models:
+    r"""List models: locally cached by default, or the full hub with ``--all``."""
+
+    all: bool = False
 
     def run(self) -> None:
-        from worldkernels.cli.doctor import run_doctor
+        from worldkernels.cli.pull import run_models
 
-        run_doctor()
-
-
-# ---------------------------------------------------------------------------
-# model:*
-# ---------------------------------------------------------------------------
+        run_models(show_all=self.all)
 
 
 @dataclass
-class ModelList:
-    r"""List registered world models."""
+class Rm:
+    r"""Remove a model from the local cache (weights + manifest)."""
 
-    verbose: Annotated[bool, tyro.conf.arg(aliases=("-v",))] = False
+    model: _PositionalModel = ""
+    variant: str | None = None
 
     def run(self) -> None:
-        from worldkernels.cli.model import run_list
+        if not self.model:
+            print("Error: model name is required")
+            raise SystemExit(1)
+        from worldkernels.cli.pull import run_rm
 
-        run_list(self.verbose)
+        run_rm(self.model, variant=self.variant)
+
+
+@dataclass
+class CollectEnv:
+    r"""Collect environment info: GPU, deps, plugins, hub, local cache, isolated envs."""
+
+    def run(self) -> None:
+        from worldkernels.cli.collect_env import run_collect_env
+
+        run_collect_env()
+
+
+@dataclass
+class ConfigShow:
+    r"""Show the resolved runtime config (component toggles) and each flag's source."""
+
+    profile: str | None = None
+    json: bool = False
+
+    def run(self) -> None:
+        from worldkernels.cli.config_cmd import run_config_show
+
+        run_config_show(self.profile, self.json)
 
 
 @dataclass
 class ModelInspect:
     r"""Show model metadata: transition mode, VRAM estimate, capabilities."""
 
-    model_id: str = "dummy"
+    model: _PositionalModel = "dummy"
     device: str = "cpu"
     config_json: str | None = None
 
     def run(self) -> None:
         from worldkernels.cli.model import run_inspect
 
-        run_inspect(self.model_id, self.device, self.config_json)
-
-
-@dataclass
-class ModelDownload:
-    r"""Download a model from HuggingFace Hub."""
-
-    model_id: str = ""
-    revision: str | None = None
-    cache_dir: str | None = None
-
-    def run(self) -> None:
-        if not self.model_id:
-            print("Error: --model-id is required")
-            raise SystemExit(1)
-        from worldkernels.cli.model import run_download
-
-        run_download(self.model_id, self.revision, self.cache_dir)
-
-
-@dataclass
-class ModelRemove:
-    r"""Remove a model from the HuggingFace cache."""
-
-    model_id: str = ""
-
-    def run(self) -> None:
-        if not self.model_id:
-            print("Error: --model-id is required")
-            raise SystemExit(1)
-        from worldkernels.cli.model import run_remove
-
-        run_remove(self.model_id)
-
-
-@dataclass
-class ModelExport:
-    r"""Export a model to TensorRT or ONNX format."""
-
-    model_id: str = "dummy"
-    fmt: str = "tensorrt"
-    output: str | None = None
-    height: int = 480
-    width: int = 848
-    device: str = "cuda"
-
-    def run(self) -> None:
-        from worldkernels.cli.model import run_export
-
-        run_export(self.model_id, self.fmt, self.output, self.height, self.width, self.device)
-
-
-# ---------------------------------------------------------------------------
-# bench:*
-# ---------------------------------------------------------------------------
+        run_inspect(self.model, self.device, self.config_json)
 
 
 @dataclass
@@ -225,11 +218,14 @@ class BenchLatency:
     height: int = 64
     width: int = 64
     device: str = "cpu"
+    profile: str | None = None
 
     def run(self) -> None:
         from worldkernels.cli.bench import run_latency
 
-        run_latency(self.world, self.steps, self.height, self.width, self.device)
+        run_latency(
+            self.world, self.steps, self.height, self.width, self.device, profile=self.profile
+        )
 
 
 @dataclass
@@ -242,11 +238,20 @@ class BenchThroughput:
     height: int = 64
     width: int = 64
     device: str = "cpu"
+    profile: str | None = None
 
     def run(self) -> None:
         from worldkernels.cli.bench import run_throughput
 
-        run_throughput(self.world, self.sessions, self.steps, self.height, self.width, self.device)
+        run_throughput(
+            self.world,
+            self.sessions,
+            self.steps,
+            self.height,
+            self.width,
+            self.device,
+            profile=self.profile,
+        )
 
 
 @dataclass
@@ -293,42 +298,86 @@ class BenchProfile:
         run_profile(self.world, self.steps, self.height, self.width, self.device, self.output)
 
 
-# ---------------------------------------------------------------------------
-# plugin:*
-# ---------------------------------------------------------------------------
-
-
 @dataclass
-class PluginList:
+class Plugins:
     r"""List discovered entry_point plugins."""
 
     def run(self) -> None:
-        from worldkernels.cli.plugin import run_list
+        from worldkernels.cli.plugins import run_list
 
         run_list()
 
 
-# ---------------------------------------------------------------------------
-# Command union
-# ---------------------------------------------------------------------------
+BenchCommand = Union[
+    Annotated[BenchLatency, tyro.conf.subcommand("latency")],
+    Annotated[BenchThroughput, tyro.conf.subcommand("throughput")],
+    Annotated[BenchStartup, tyro.conf.subcommand("startup")],
+    Annotated[BenchVRAM, tyro.conf.subcommand("vram")],
+    Annotated[BenchProfile, tyro.conf.subcommand("profile")],
+]
+
+
+@dataclass
+class Bench:
+    r"""Benchmarks: latency, throughput, startup, vram, profile."""
+
+    cmd: BenchCommand
+
+    def run(self) -> None:
+        self.cmd.run()
+
+
+_BOOL_TRUE = {"1", "true", "yes", "on"}
+_BOOL_FALSE = {"0", "false", "no", "off"}
+
+
+def _parse_set(value: str | None) -> dict | None:
+    r"""Parse a ``--set k=v,k=v`` string into a RuntimeConfig overrides dict.
+
+    Bools accept ``on``/``off``/``true``/``false``/``1``/``0``; enums pass through
+    as strings. Validation happens in ``resolve_runtime_config``.
+    """
+    if not value:
+        return None
+    out: dict = {}
+    for pair in value.split(","):
+        if not pair.strip():
+            continue
+        if "=" not in pair:
+            raise ValueError(f"--set entry must be key=value, got {pair!r}")
+        key, val = pair.split("=", 1)
+        key, val = key.strip(), val.strip()
+        lv = val.lower()
+        if lv in _BOOL_TRUE:
+            out[key] = True
+        elif lv in _BOOL_FALSE:
+            out[key] = False
+        else:
+            out[key] = val
+    return out
+
+
+def _extra_kwargs(num_inference_steps: int | None, guidance_scale: float | None) -> dict:
+    out: dict = {}
+    if num_inference_steps is not None:
+        out["num_inference_steps"] = num_inference_steps
+    if guidance_scale is not None:
+        out["guidance_scale"] = guidance_scale
+    return out
 
 
 Command = tyro.conf.SuppressFixed[
     Union[
         Annotated[Serve, tyro.conf.subcommand("serve")],
         Annotated[Run, tyro.conf.subcommand("run")],
-        Annotated[Doctor, tyro.conf.subcommand("doctor")],
-        Annotated[ModelList, tyro.conf.subcommand("model:list", prefix_name=False)],
-        Annotated[ModelInspect, tyro.conf.subcommand("model:inspect", prefix_name=False)],
-        Annotated[ModelDownload, tyro.conf.subcommand("model:download", prefix_name=False)],
-        Annotated[ModelRemove, tyro.conf.subcommand("model:remove", prefix_name=False)],
-        Annotated[ModelExport, tyro.conf.subcommand("model:export", prefix_name=False)],
-        Annotated[BenchLatency, tyro.conf.subcommand("bench:latency", prefix_name=False)],
-        Annotated[BenchThroughput, tyro.conf.subcommand("bench:throughput", prefix_name=False)],
-        Annotated[BenchStartup, tyro.conf.subcommand("bench:startup", prefix_name=False)],
-        Annotated[BenchVRAM, tyro.conf.subcommand("bench:vram", prefix_name=False)],
-        Annotated[BenchProfile, tyro.conf.subcommand("bench:profile", prefix_name=False)],
-        Annotated[PluginList, tyro.conf.subcommand("plugin:list", prefix_name=False)],
+        Annotated[Pull, tyro.conf.subcommand("pull")],
+        Annotated[Models, tyro.conf.subcommand("models")],
+        Annotated[Rm, tyro.conf.subcommand("rm")],
+        Annotated[CollectEnv, tyro.conf.subcommand("collect-env")],
+        Annotated[ConfigShow, tyro.conf.subcommand("config-show")],
+        Annotated[ModelInspect, tyro.conf.subcommand("inspect")],
+        Annotated[Bench, tyro.conf.subcommand("bench")],
+        Annotated[Plugins, tyro.conf.subcommand("plugins")],
     ]
 ]
 

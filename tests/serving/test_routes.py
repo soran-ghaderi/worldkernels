@@ -43,6 +43,29 @@ class TestWorldRoutes:
         assert r.status_code == 200
         assert r.json()["status"] == "unloaded"
 
+    def test_get_config_returns_resolved(self, client):
+        r = client.get("/v1/config")
+        assert r.status_code == 200
+        body = r.json()
+        assert "config" in body
+        assert "torch_compile" in body["config"]
+        assert "value" in body["config"]["torch_compile"]
+        assert "source" in body["config"]["torch_compile"]
+
+    def test_create_session_with_overrides(self, client):
+        body = client.post(
+            "/v1/sessions",
+            json={
+                "world": "dummy",
+                "height": 32,
+                "width": 32,
+                "frames_per_step": 1,
+                "overrides": {"teacache": False},
+            },
+        ).json()
+        sess = client.app.state.engine.get_session(body["session_id"])
+        assert sess.overrides == {"teacache": False}
+
     def test_unload_unknown_404(self, client):
         r = client.delete("/v1/worlds/missing_xyz")
         assert r.status_code == 404
@@ -235,7 +258,11 @@ class TestRouteErrors:
         def fake_transition(*a, **kw):
             raise WorldKernelError("internal")
 
+        def fake_transition_iter(*a, **kw):
+            raise WorldKernelError("internal")
+
         monkeypatch.setattr(sess._world, "transition", fake_transition)
+        monkeypatch.setattr(sess._world, "transition_iter", fake_transition_iter)
         r = client.post(f"/v1/sessions/{body['session_id']}/step", json={"action_type": "null"})
         assert r.status_code == 500
 

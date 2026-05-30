@@ -18,6 +18,7 @@ from worldkernels.runtime.stages import (
 )
 
 if TYPE_CHECKING:
+    from worldkernels.config import RuntimeConfig
     from worldkernels.core.action import Action
     from worldkernels.core.request import StepRequest
     from worldkernels.core.session import LatentState
@@ -32,6 +33,8 @@ class Executor:
         dtype: Target dtype.
         stage_configs: Per-stage execution configs.
         connector: Inter-stage transport. Defaults to ``LocalConnector``.
+        config: Runtime config (component toggles); gates cuda_graphs /
+            iteration_batching / latent_pool / kv_cache (wired incrementally).
     """
 
     def __init__(
@@ -40,9 +43,11 @@ class Executor:
         dtype: torch.dtype,
         stage_configs: tuple[StageConfig, ...] | None = None,
         connector: StageConnector | None = None,
+        config: "RuntimeConfig | None" = None,
     ) -> None:
         self.device = device
         self.dtype = dtype
+        self.config = config
         self.stage_configs = {
             cfg.stage_type: cfg for cfg in (stage_configs or DEFAULT_PIPELINE_STAGES)
         }
@@ -51,6 +56,14 @@ class Executor:
     def _stage_enabled(self, stage_type: StageType) -> bool:
         cfg = self.stage_configs.get(stage_type)
         return cfg is None or cfg.enabled
+
+    def _iteration_batching_enabled(self) -> bool:
+        try:
+            from worldkernels.runtime.forward_context import get_forward_context
+
+            return get_forward_context().iteration_batching
+        except RuntimeError:
+            return bool(self.config and self.config.iteration_batching)
 
     # ---- per-stage execution ---------------------------------------------
 
@@ -81,9 +94,18 @@ class Executor:
 
         Treats ``transition()`` as opaque; the world's ``transition_mode``
         determines internal behavior (bidirectional vs causal vs hybrid).
+        When ``iteration_batching`` is on and the world supports it, drives
+        ``transition_iter`` and uses the final yielded state — opening the
+        seam for sessions to join a batch mid-denoise.
         """
         t0 = time.perf_counter()
-        new_state = world.transition(state, action_encoded)
+        iter_batch_on = self._iteration_batching_enabled()
+        if iter_batch_on and getattr(world, "supports_iteration_batching", False):
+            new_state = state
+            for new_state in world.transition_iter(state, action_encoded):
+                pass
+        else:
+            new_state = world.transition(state, action_encoded)
         elapsed = (time.perf_counter() - t0) * 1000.0
         return StageOutput(
             stage_type=StageType.TRANSITION,

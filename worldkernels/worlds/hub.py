@@ -2,7 +2,6 @@ r"""Model hub: maps HF repo IDs and short aliases to world models and generators
 
 from __future__ import annotations
 
-import importlib as _importlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -17,19 +16,50 @@ _WAN_NEGATIVE_PROMPT = (
 
 
 @dataclass(frozen=True)
+class GitPackage:
+    r"""Spec for a github-only python package fetched on first use."""
+
+    name: str
+    url: str
+    import_check: str | None = None
+    env_path_var: str | None = None
+    ref: str | None = None
+
+
+@dataclass(frozen=True)
+class Component:
+    r"""Sub-model component with its own pip extra and import sentinel.
+
+    Args:
+        name: Component identifier (e.g. ``"wan-vae"``).
+        extra: The worldkernels extra that provides it.
+        sentinel: A module path used to detect whether the extra is installed.
+        deps: PEP 508 specs for the component's deps (used by the resolver).
+    """
+
+    name: str
+    extra: str
+    sentinel: str
+    deps: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ModelCard:
     r"""Metadata for a known model.
 
     Args:
-        adapter: World-registry key of the world class. For generators this is
-            ``"generator_world"``; the engine wraps the generator pipeline.
-        kind: ``"world"`` for a true world model, ``"generator"`` for a one-shot
-            video generator surfaced via ``GeneratorWorld``.
-        generator: Pipeline-registry key of the wrapped generator (kind=generator).
-        hf_repo: HuggingFace repo ID, if any.
+        adapter: World-registry key (``"dreamdojo"``, ``"generator_world"`` …).
+        kind: ``"world"`` or ``"generator"``.
+        generator: Pipeline-registry key (for kind=generator).
+        hf_repo: HuggingFace repo ID.
         default_kwargs: Constructor kwargs merged under user kwargs.
         description: Human-readable summary.
-        pip_extra: Optional ``worldkernels`` extra to auto-install on load.
+        pip_extra: Optional worldkernels extra to auto-install.
+        git_packages: GitHub-only python deps fetched on first use.
+        variants: Named variant kwargs (``{"2b_gr1": {"variant": "2b_gr1"}}``).
+        auth_required: Whether the HF repo is gated.
+        allow_patterns: HF snapshot_download patterns.
+        variant_pattern: Per-variant HF download patterns (``{variant}`` is substituted).
     """
 
     adapter: str
@@ -39,6 +69,14 @@ class ModelCard:
     default_kwargs: dict[str, Any] = field(default_factory=dict)
     description: str = ""
     pip_extra: str | None = None
+    git_packages: list[GitPackage] = field(default_factory=list)
+    variants: dict[str, dict[str, Any]] = field(default_factory=dict)
+    auth_required: bool = False
+    allow_patterns: list[str] | None = None
+    variant_pattern: list[str] | None = None
+    isolation: Literal["auto", "shared", "isolated"] = "auto"
+    constraints: list[str] = field(default_factory=list)
+    components: list[Component] = field(default_factory=list)
 
 
 _HUB: dict[str, ModelCard] = {}
@@ -56,6 +94,42 @@ def list_models() -> dict[str, ModelCard]:
     return dict(_HUB)
 
 
+def infer_card_from_hf(repo_id: str) -> ModelCard | None:
+    r"""Synthesize a minimal card for an unknown ``org/repo`` reference.
+
+    Probes the HF Hub for the model card metadata; if the repo doesn't exist,
+    returns ``None``. Adapter selection is best-effort based on tags and falls
+    back to ``"generator_world"`` for diffusion-style repos.
+    """
+    try:
+        from huggingface_hub import HfApi
+        from huggingface_hub.errors import RepositoryNotFoundError
+    except ImportError:
+        return None
+
+    try:
+        info = HfApi().model_info(repo_id)
+    except RepositoryNotFoundError:
+        return None
+    except Exception as exc:
+        log.debug("HF probe failed for %s: %s", repo_id, exc)
+        return None
+
+    tags = set(info.tags or [])
+    adapter = "generator_world"
+    pip_extra = "diffusion"
+    if "diffusers" in tags:
+        adapter = "generator_world"
+        pip_extra = "diffusion"
+
+    return ModelCard(
+        adapter=adapter,
+        hf_repo=repo_id,
+        description=f"auto-inferred from {repo_id}",
+        pip_extra=pip_extra,
+    )
+
+
 _EXTRA_SENTINELS: dict[str, str] = {
     "cosmos": "transformers",
     "diffusion": "diffusers",
@@ -63,7 +137,14 @@ _EXTRA_SENTINELS: dict[str, str] = {
 
 
 def ensure_model_deps(model_id: str) -> None:
-    r"""Auto-install missing pip extras required by a model."""
+    r"""Auto-install missing pip extras for a model.
+
+    Back-compat shim retained for ``model:inspect`` and tests. New code should
+    use ``worldkernels.bootstrap.prepare``, which integrates with the unified
+    progress UI.
+    """
+    import importlib as _importlib
+
     card = _HUB.get(model_id)
     if card is None or card.pip_extra is None:
         return
@@ -75,27 +156,28 @@ def ensure_model_deps(model_id: str) -> None:
         return
     except ImportError:
         pass
-    import os
 
-    if os.environ.get("WORLDKERNELS_NO_AUTO_INSTALL"):
+    import os as _os
+
+    if _os.environ.get("WORLDKERNELS_NO_AUTO_INSTALL"):
         raise ImportError(
             f"Missing dependencies for '{model_id}'. "
             f"Install with: pip install 'worldkernels[{card.pip_extra}]'"
         )
-    import subprocess
-    import sys
+    import subprocess as _subprocess
+    import sys as _sys
 
     extra = f"worldkernels[{card.pip_extra}]"
     log.info("Auto-installing missing dependencies: pip install '%s' ...", extra)
-    subprocess.check_call([sys.executable, "-m", "pip", "install", extra])
+    _subprocess.check_call([_sys.executable, "-m", "pip", "install", extra])
     log.info("Dependencies installed successfully.")
 
 
 def resolve_model(model_id: str, **user_kwargs: Any) -> tuple[str, dict[str, Any]]:
     r"""Resolve a model identifier to ``(world_registry_key, merged_kwargs)``.
 
-    Hub default kwargs are merged under user kwargs. For a generator card the
-    wrapped generator key is injected so the engine constructs a ``GeneratorWorld``.
+    Deprecated; use ``worldkernels.bootstrap.prepare`` for new code. Retained for
+    legacy callers that don't need the bootstrap pipeline (e.g., ``model:inspect``).
     """
     card = _HUB.get(model_id)
     if card is None:
@@ -104,6 +186,14 @@ def resolve_model(model_id: str, **user_kwargs: Any) -> tuple[str, dict[str, Any
     if card.generator is not None:
         merged.setdefault("generator", card.generator)
     return card.adapter, merged
+
+
+_DREAMDOJO_GIT = GitPackage(
+    name="DreamDojo",
+    url="https://github.com/NVIDIA/DreamDojo.git",
+    import_check="cosmos_predict2",
+    env_path_var="COSMOS_PREDICT2_PATH",
+)
 
 
 def _register_builtins() -> None:
@@ -121,6 +211,21 @@ def _register_builtins() -> None:
         "14b_pretrain": "DreamDojo 14B pretrained (general)",
         "14b_gr1": "DreamDojo 14B fine-tuned on GR-1 robot",
     }
+
+    dreamdojo_card = ModelCard(
+        adapter="dreamdojo",
+        kind="world",
+        hf_repo="nvidia/DreamDojo",
+        default_kwargs={"variant": "2b_pretrain"},
+        description="DreamDojo action-conditioned video world model",
+        pip_extra="cosmos",
+        git_packages=[_DREAMDOJO_GIT],
+        variants={k: {"variant": k} for k in _dreamdojo_variants},
+    )
+    register_model("dreamdojo", dreamdojo_card)
+    register_model("nvidia/DreamDojo", dreamdojo_card)
+    register_model("DreamDojo", dreamdojo_card)
+
     for variant, desc in _dreamdojo_variants.items():
         short = f"dreamdojo-{variant.replace('_', '-')}"
         register_model(
@@ -132,21 +237,11 @@ def _register_builtins() -> None:
                 default_kwargs={"variant": variant},
                 description=desc,
                 pip_extra="cosmos",
+                git_packages=[_DREAMDOJO_GIT],
             ),
         )
 
-    _dreamdojo_card = ModelCard(
-        adapter="dreamdojo",
-        kind="world",
-        hf_repo="nvidia/DreamDojo",
-        default_kwargs={"variant": "2b_pretrain"},
-        description="DreamDojo action-conditioned video world model (default: 2B pretrain)",
-        pip_extra="cosmos",
-    )
-    register_model("dreamdojo", _dreamdojo_card)
-    register_model("nvidia/DreamDojo", _dreamdojo_card)
-
-    _cosmos_card = ModelCard(
+    cosmos_card = ModelCard(
         adapter="generator_world",
         kind="generator",
         generator="cosmos_predict2",
@@ -154,9 +249,10 @@ def _register_builtins() -> None:
         default_kwargs={"num_inference_steps": 35, "guidance_scale": 7.0},
         description="Cosmos-Predict2.5-2B text-conditioned video generator",
         pip_extra="cosmos",
+        git_packages=[_DREAMDOJO_GIT],
     )
     for name in ("cosmos-predict2", "cosmos_predict2", "nvidia/Cosmos-Predict2.5-2B"):
-        register_model(name, _cosmos_card)
+        register_model(name, cosmos_card)
 
     _wan_variants = {
         "wan2.2-ti2v-5b": (

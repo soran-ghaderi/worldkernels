@@ -82,6 +82,9 @@ class Session:
     _world: WorldModel | None = field(default=None, repr=False)
     _scheduler: Scheduler | None = field(default=None, repr=False)
 
+    # Per-session runtime overrides (SESSION_OVERRIDE_FIELDS subset)
+    overrides: dict | None = None
+
     # ---- core hot path ---------------------------------------------------
 
     def step(
@@ -124,6 +127,7 @@ class Session:
             modalities=modalities,
             step_index=self.step_index,
             decode=decode,
+            overrides=self.overrides,
         )
 
         self.state = new_state

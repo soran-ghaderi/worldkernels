@@ -25,6 +25,10 @@ __all__ = [
     "set_active_sessions",
     "set_vram_bytes",
     "set_cache_hit_ratio",
+    "set_isolation_tier",
+    "set_worker_processes",
+    "observe_worker_ipc_latency",
+    "inc_worker_respawns",
 ]
 
 REGISTRY = CollectorRegistry()
@@ -65,6 +69,29 @@ _CACHE_HIT_RATIO = Gauge(
     "Denoise-step cache hit ratio in [0, 1].",
     registry=REGISTRY,
 )
+_ISOLATION_TIER = Gauge(
+    "wk_model_isolation_tier",
+    "Per-model isolation tier (0 = shared env, 1 = isolated subprocess).",
+    labelnames=("model_id",),
+    registry=REGISTRY,
+)
+_WORKER_PROCESSES = Gauge(
+    "wk_worker_processes",
+    "Number of isolated worker subprocesses currently live.",
+    registry=REGISTRY,
+)
+_WORKER_IPC_LATENCY = Histogram(
+    "wk_worker_ipc_latency_seconds",
+    "Engine ↔ worker RPC round-trip latency.",
+    labelnames=("model_id",),
+    registry=REGISTRY,
+)
+_WORKER_RESPAWNS = Counter(
+    "wk_worker_respawns_total",
+    "Times an isolated worker was respawned after crashing.",
+    labelnames=("model_id",),
+    registry=REGISTRY,
+)
 
 
 def observe_step(latency_seconds: float, frames: int = 0) -> None:
@@ -90,6 +117,22 @@ def set_vram_bytes(value: float) -> None:
 
 def set_cache_hit_ratio(ratio: float) -> None:
     _CACHE_HIT_RATIO.set(ratio)
+
+
+def set_isolation_tier(model_id: str, tier: int) -> None:
+    _ISOLATION_TIER.labels(model_id=model_id).set(tier)
+
+
+def set_worker_processes(count: int) -> None:
+    _WORKER_PROCESSES.set(count)
+
+
+def observe_worker_ipc_latency(model_id: str, seconds: float) -> None:
+    _WORKER_IPC_LATENCY.labels(model_id=model_id).observe(seconds)
+
+
+def inc_worker_respawns(model_id: str) -> None:
+    _WORKER_RESPAWNS.labels(model_id=model_id).inc()
 
 
 def render() -> bytes:

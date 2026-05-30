@@ -18,20 +18,29 @@ class TestRunServe:
         run_serve("0.0.0.0", 8000, 2, None, "cpu")
         assert captured == {"host": "0.0.0.0", "port": 8000}
 
-    def test_with_model_preloads(self, monkeypatch, capsys):
+    def test_with_model_preloads(self, monkeypatch):
         called = {}
         monkeypatch.setattr("uvicorn.run", lambda *a, **kw: called.setdefault("uvicorn", True))
 
         with patch("worldkernels.engine.WorldEngine.load_model") as load_mock:
-            run_serve("0.0.0.0", 8000, 2, None, "cpu", "dummy", {})
-            load_mock.assert_called_once_with("dummy")
-
-        out = capsys.readouterr().out
-        assert "Pre-loading model: dummy" in out
-        assert called["uvicorn"] is True
+            run_serve("0.0.0.0", 8000, 2, None, "cpu", model="dummy")
+            load_mock.assert_called_once()
+            assert load_mock.call_args.args == ("dummy",)
+            assert called["uvicorn"] is True
 
     def test_with_model_kwargs(self, monkeypatch):
         monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
         with patch("worldkernels.engine.WorldEngine.load_model") as load_mock:
-            run_serve("0.0.0.0", 8000, 1, "k", "cpu", "dummy", {"variant": "v"})
-            load_mock.assert_called_once_with("dummy", variant="v")
+            run_serve(
+                "0.0.0.0",
+                8000,
+                1,
+                "k",
+                "cpu",
+                model="dummy",
+                model_kwargs={"num_inference_steps": 5, "guidance_scale": 3.0},
+            )
+            load_mock.assert_called_once()
+            assert load_mock.call_args.args == ("dummy",)
+            assert load_mock.call_args.kwargs.get("num_inference_steps") == 5
+            assert load_mock.call_args.kwargs.get("guidance_scale") == 3.0

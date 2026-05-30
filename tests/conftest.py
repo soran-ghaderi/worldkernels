@@ -8,6 +8,7 @@ import pytest
 import torch
 
 os.environ["WORLDKERNELS_NO_AUTO_INSTALL"] = "1"
+os.environ["WORLDKERNELS_QUIET"] = "1"
 
 from tests._helpers.factories import make_world_config  # noqa: E402
 from tests._helpers.mocks import MockWorld  # noqa: E402
@@ -20,8 +21,35 @@ from worldkernels.worlds import (
 
 @pytest.fixture(autouse=True)
 def _no_pip_install(monkeypatch):
-    r"""Hard guard: under no circumstances may a test trigger pip install."""
+    r"""Block pip/uv install, git clone, HF download, and venv materialization in tests."""
+    from worldkernels.bootstrap import deps as _deps, weights as _weights
+    from worldkernels.runtime import envs as _envs
+
+    def _block_pip(card, progress=None, allow_fetch=True, target_python=None):
+        return None
+
+    def _block_git(card, progress=None, allow_fetch=True):
+        return None
+
+    def _block_install(packages, target_python=None, progress=None, constraints=None):
+        return None
+
+    def _block_weights(card, variant=None, ckpt_path=None, progress=None, allow_fetch=True):
+        if ckpt_path is not None:
+            return ckpt_path
+        return None
+
+    def _block_env(model_id, requirements, device="cuda", progress=None, allow_fetch=True):
+        raise AssertionError(
+            f"test triggered materialize_env({model_id!r}); add a monkeypatch if intended"
+        )
+
     monkeypatch.setattr(_hub, "ensure_model_deps", lambda model_id: None)
+    monkeypatch.setattr(_deps, "provision_python_deps", _block_pip)
+    monkeypatch.setattr(_deps, "provision_git_packages", _block_git)
+    monkeypatch.setattr(_deps, "install_packages", _block_install)
+    monkeypatch.setattr(_weights, "provision_weights", _block_weights)
+    monkeypatch.setattr(_envs, "materialize_env", _block_env)
 
 
 @pytest.fixture

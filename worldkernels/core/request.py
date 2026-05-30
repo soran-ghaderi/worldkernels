@@ -38,3 +38,4 @@ class StepRequest:
     modalities: list[str] = field(default_factory=lambda: ["frames"])
     step_index: int = 0
     decode: bool = True
+    overrides: dict | None = None
