@@ -12,7 +12,7 @@ import logging
 import sys
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +27,7 @@ class WorkerState:
     world: Any = None
     device: str = "cuda"
     dtype: Any = None
-    objects: dict[str, Any] = None
-
-    def __post_init__(self) -> None:
-        self.objects = {}
+    objects: dict[str, Any] = field(default_factory=dict)
 
 
 def _new_handle() -> str:

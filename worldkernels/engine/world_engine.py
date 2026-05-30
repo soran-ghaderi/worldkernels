@@ -430,7 +430,7 @@ def _normalize_overrides(value) -> dict | None:
         return {k: v for k, v in value.items() if v is not None}
     import dataclasses
 
-    if dataclasses.is_dataclass(value):
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {k: v for k, v in dataclasses.asdict(value).items() if v is not None}
     raise TypeError(
         f"overrides must be dict, SessionOverrides, or None; got {type(value).__name__}"

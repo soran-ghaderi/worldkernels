@@ -122,7 +122,7 @@ def _recv_via_cuda(handle: IpcHandle) -> Any:
         p.get("event_handle"),
         p.get("event_sync_required"),
     )
-    return rebuild_cuda_tensor(*args)
+    return rebuild_cuda_tensor(*args)  # type: ignore[call-arg]
 
 
 def _share_via_shm(t: Any) -> IpcHandle:
@@ -130,6 +130,7 @@ def _share_via_shm(t: Any) -> IpcHandle:
 
     arr = _tensor_to_numpy(t)
     shm = shared_memory.SharedMemory(create=True, size=max(1, arr.nbytes))
+    assert shm.buf is not None
     shm.buf[: arr.nbytes] = arr.tobytes()
     return IpcHandle(
         mode="shm",
@@ -146,6 +147,7 @@ def _recv_via_shm(handle: IpcHandle) -> Any:
     import numpy as np
 
     shm = shared_memory.SharedMemory(name=handle.payload["name"])
+    assert shm.buf is not None
     dtype = _str_to_numpy_dtype(handle.dtype)
     nbytes = handle.payload["size_bytes"]
     arr = np.frombuffer(shm.buf[:nbytes], dtype=dtype).reshape(handle.shape).copy()

@@ -87,7 +87,7 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
-        def sink(event: dict[str, Any]) -> None:
+        def sink(event: dict[str, Any] | None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
 
         async def run_load() -> None:

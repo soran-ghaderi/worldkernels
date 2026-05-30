@@ -36,8 +36,9 @@ def prepare(
     actual instantiate/warmup so it can update the phase to ``done``).
     """
     owns_progress = progress is None
-    if owns_progress:
+    if progress is None:
         progress = ProgressController(mode="auto").__enter__()
+    assert progress is not None
 
     try:
         progress.event("resolve", "running", ref)

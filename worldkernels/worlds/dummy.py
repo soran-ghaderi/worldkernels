@@ -19,6 +19,8 @@ from worldkernels.worlds.base import InteractiveWorldModel
 if TYPE_CHECKING:
     from worldkernels.config import WorldConfig
     from worldkernels.core.action import Action
+    from worldkernels.runtime.cache.teacache import TeaCache
+    from worldkernels.runtime.memory.latent_pool import LatentPool
 
 _LATENT_C = 4
 _LATENT_FACTOR = 8
@@ -137,7 +139,7 @@ class DummyWorld(InteractiveWorldModel):
         return LatentState(data=data, device=self.device)
 
 
-def _runtime_features() -> tuple["object | None", "object | None"]:
+def _runtime_features() -> "tuple[LatentPool | None, TeaCache | None]":
     r"""Return (pool, cache) from the active ForwardContext, or (None, None)."""
     try:
         from worldkernels.runtime.forward_context import get_forward_context

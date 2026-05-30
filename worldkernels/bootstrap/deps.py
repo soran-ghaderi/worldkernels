@@ -8,7 +8,6 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -206,14 +205,3 @@ def _is_valid(path: Path, import_check: str | None) -> bool:
     if import_check is None:
         return True
     return (path / import_check.replace(".", "/") / "__init__.py").exists()
-
-
-@dataclass
-class GitPackage:
-    r"""Spec for a github-only python package fetched on first use."""
-
-    name: str
-    url: str
-    import_check: str | None = None
-    env_path_var: str | None = None
-    ref: str | None = None

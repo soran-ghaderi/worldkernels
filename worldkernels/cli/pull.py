@@ -86,8 +86,9 @@ def run_rm(model: str, variant: str | None = None) -> None:
 
 
 def _human(b: int) -> str:
+    size = float(b)
     for unit in ("B", "KB", "MB", "GB", "TB"):
-        if b < 1024:
-            return f"{b:.1f}{unit}"
-        b /= 1024
-    return f"{b:.1f}PB"
+        if size < 1024:
+            return f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.1f}PB"
