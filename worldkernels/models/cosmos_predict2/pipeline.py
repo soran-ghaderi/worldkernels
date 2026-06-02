@@ -18,14 +18,18 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 from worldkernels.models.base import GenerationResult, VideoGenerator
+from worldkernels.models.cosmos_predict2.checkpoint import (
+    COSMOS_HF_REPO,
+    DEFAULT_VARIANT,
+    download_vae_tokenizer,
+    resolve_ckpt_file,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
 log = logging.getLogger(__name__)
 
-COSMOS_HF_REPO = "nvidia/Cosmos-Predict2.5-2B"
-COSMOS_CKPT_FILE = "base/pre-trained/d20b7120-df3e-4911-919d-db6e08bad31c_ema_bf16.pt"
 DEFAULT_COSMOS_CONFIG = "cosmos_predict2/_src/predict2/configs/video2world/config.py"
 DEFAULT_COSMOS_EXPERIMENT = (
     "Stage-c_pt_4-reason_embeddings-v1p1-Index-26-Size-2B-Res-720-Fps-16"
@@ -98,7 +102,6 @@ class CosmosPredict2Pipeline(VideoGenerator):
 
     LATENT_CH: int = 16
     SPATIAL_FACTOR: int = 8
-    HF_TOKENIZER_REPO: str = "nvidia/Cosmos-Predict2.5-2B"
     NEGATIVE_PROMPT: str = (
         "The video captures a series of frames showing ugly scenes, static with no motion, "
         "motion blur, over-saturation, shaky footage, low resolution, grainy texture, "
@@ -115,16 +118,32 @@ class CosmosPredict2Pipeline(VideoGenerator):
         experiment: str = DEFAULT_COSMOS_EXPERIMENT,
         config_file: str = DEFAULT_COSMOS_CONFIG,
         ckpt_path: str | None = None,
+        variant: str = DEFAULT_VARIANT,
+        text_encoder: str = "auto",
     ) -> None:
+        if text_encoder not in ("auto", "on", "off"):
+            raise ValueError(f"text_encoder must be auto|on|off, got {text_encoder!r}")
         self.experiment = experiment
         self.config_file = config_file
         self.ckpt_path = ckpt_path
+        self.variant = variant
+        self.text_encoder_mode = text_encoder
         self.device: str = "cpu"
         self.dtype: torch.dtype = torch.float32
         self._model: Any = None
         self._neg_text_emb: torch.Tensor | None = None
         self._loaded = False
         self._stub_text_emb_dim: int = 0
+
+    @property
+    def _text_encoder_enabled(self) -> bool:
+        r"""Whether the 16.6 GB reason1-7B text encoder should be loaded + used.
+
+        Only ``text_encoder="on"`` loads it. ``auto`` (default) and ``off`` skip it so neither
+        the encoder nor its weights are downloaded; ``encode_text`` returns synthetic embeddings
+        and inference still runs (unconditional / action-conditioned).
+        """
+        return self.text_encoder_mode == "on" and not os.environ.get("WK_STUB_TEXT_ENCODER")
 
     @property
     def is_loaded(self) -> bool:
@@ -155,7 +174,14 @@ class CosmosPredict2Pipeline(VideoGenerator):
 
         log.info("Loading model (experiment=%s)", experiment)
         self._model = self._load_model(experiment, ckpt, config_file)
-        self._neg_text_emb = self.encode_text(self.NEGATIVE_PROMPT)
+        if self._text_encoder_enabled:
+            self._neg_text_emb = self.encode_text(self.NEGATIVE_PROMPT)
+        else:
+            log.info(
+                "Text encoder not loaded (text_encoder=%s); prompts use synthetic embeddings. "
+                "Pass text_encoder='on' for prompt-conditioned generation.",
+                self.text_encoder_mode,
+            )
         self._loaded = True
         log.info(
             "CosmosPredict2 pipeline loaded on %s (%.1f GB VRAM)",
@@ -166,8 +192,8 @@ class CosmosPredict2Pipeline(VideoGenerator):
     def _resolve_default_checkpoint(self) -> tuple[str, str, str]:
         r"""Resolve checkpoint + experiment + config, falling back to DreamDojo pretrain."""
         try:
-            log.info("Downloading Cosmos-Predict2.5-2B checkpoint...")
-            ckpt = _download_hf_file(COSMOS_HF_REPO, COSMOS_CKPT_FILE)
+            log.info("Downloading Cosmos-Predict2.5-2B checkpoint (variant=%s)...", self.variant)
+            ckpt = _download_hf_file(COSMOS_HF_REPO, resolve_ckpt_file(self.variant))
             return ckpt, self.experiment, self.config_file
         except Exception as exc:
             log.info(
@@ -200,13 +226,12 @@ class CosmosPredict2Pipeline(VideoGenerator):
         config.model.config.ema.enabled = False
         config.model.config.fsdp_shard_size = 1
 
-        stub_text_encoder = bool(os.environ.get("WK_STUB_TEXT_ENCODER"))
-        if stub_text_encoder:
+        if not self._text_encoder_enabled:
             self._stub_text_emb_dim = config.model.config.net.crossattn_proj_in_channels
             config.model.config.text_encoder_config = None
 
         self._patch_tokenizer_path()
-        if not stub_text_encoder:
+        if self._text_encoder_enabled:
             self._patch_text_encoder_paths()
 
         config.validate()
@@ -226,11 +251,13 @@ class CosmosPredict2Pipeline(VideoGenerator):
         return model
 
     def _patch_tokenizer_path(self) -> None:
-        try:
-            tokenizer_path = _download_hf_file(self.HF_TOKENIZER_REPO, "tokenizer.pth")
-        except Exception:
-            log.warning("Could not download tokenizer from HF")
-            return
+        r"""Point the Wan2.1 VAE at a local checkpoint so it never hits cosmos's ``s3://`` path.
+
+        Without this the VAE loads from an internal object store via the stubbed
+        ``multistorageclient`` backend and fails. Raises if the (non-gated) tokenizer cannot
+        be fetched, rather than silently letting the run fail later in the VAE.
+        """
+        tokenizer_path = download_vae_tokenizer()
 
         from cosmos_predict2._src.predict2.tokenizers import wan2pt1
 
@@ -275,8 +302,13 @@ class CosmosPredict2Pipeline(VideoGenerator):
         return emb.to(device=self.device, dtype=self.dtype)
 
     def encode_text(self, prompt: str) -> torch.Tensor:
-        r"""Compute the text embedding for ``prompt``."""
-        if os.environ.get("WK_STUB_TEXT_ENCODER"):
+        r"""Compute the text embedding for ``prompt``.
+
+        With the text encoder disabled (``text_encoder`` auto/off, or ``WK_STUB_TEXT_ENCODER``)
+        this returns a deterministic synthetic embedding so the 7B LLM is never loaded and
+        inference still runs.
+        """
+        if not self._text_encoder_enabled:
             return self._stub_text_emb(prompt)
         if self._model is not None and getattr(self._model, "text_encoder", None) is not None:
             emb = self._model.text_encoder.compute_text_embeddings_online(

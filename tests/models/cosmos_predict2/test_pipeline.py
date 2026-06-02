@@ -112,8 +112,26 @@ class TestPipelineConstruction:
     def test_class_constants(self):
         assert CosmosPredict2Pipeline.LATENT_CH == 16
         assert CosmosPredict2Pipeline.SPATIAL_FACTOR == 8
-        assert CosmosPredict2Pipeline.HF_TOKENIZER_REPO == "nvidia/Cosmos-Predict2.5-2B"
         assert "ugly" in CosmosPredict2Pipeline.NEGATIVE_PROMPT
+
+    def test_text_encoder_default_is_auto_and_disabled(self):
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c")
+        assert p.text_encoder_mode == "auto"
+        assert p._text_encoder_enabled is False
+        assert p.variant == "pretrained"
+
+    def test_text_encoder_on_enables(self):
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
+        assert p._text_encoder_enabled is True
+
+    def test_invalid_text_encoder_rejected(self):
+        with pytest.raises(ValueError, match="text_encoder"):
+            CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="maybe")
+
+    def test_stub_env_forces_disabled_even_when_on(self, monkeypatch):
+        monkeypatch.setenv("WK_STUB_TEXT_ENCODER", "1")
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
+        assert p._text_encoder_enabled is False
 
 
 class TestEstimateLatentVram:
@@ -269,8 +287,8 @@ class TestWarmupShortCircuit:
 
 
 class TestLoadShortCircuit:
-    def test_load_invokes_ensure_and_load_model(self, monkeypatch):
-        p = CosmosPredict2Pipeline(experiment="e", config_file="c")
+    def test_load_with_text_encoder_on_computes_neg(self, monkeypatch):
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
         monkeypatch.setattr(
             "worldkernels.models.cosmos_predict2.deps.ensure_cosmos_predict2",
             lambda: None,
@@ -283,6 +301,24 @@ class TestLoadShortCircuit:
         assert p._neg_text_emb is not None
         assert p.device == "cpu"
         assert p.dtype == torch.float32
+
+    def test_load_auto_skips_text_encoder(self, monkeypatch):
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c")
+        assert p.text_encoder_mode == "auto"
+        monkeypatch.setattr(
+            "worldkernels.models.cosmos_predict2.deps.ensure_cosmos_predict2",
+            lambda: None,
+        )
+        called = []
+        monkeypatch.setattr(p, "_load_model", lambda *a, **kw: MagicMock())
+        monkeypatch.setattr(
+            p, "encode_text", lambda prompt: called.append(prompt) or torch.zeros(1)
+        )
+        monkeypatch.setattr("torch.cuda.memory_allocated", lambda *a, **kw: 0, raising=False)
+        p.load("cpu", torch.float32, "/fake/ckpt")
+        assert p.is_loaded is True
+        assert p._neg_text_emb is None
+        assert called == []
 
 
 class TestCreateInitialLatent:
@@ -377,7 +413,7 @@ class TestEncodeImage:
 
 class TestEncodeTextRouting:
     def test_uses_model_text_encoder_when_available(self):
-        p = CosmosPredict2Pipeline(experiment="e", config_file="c")
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
         p.device = "cpu"
         p.dtype = torch.float32
         text_encoder = MagicMock()
@@ -395,7 +431,7 @@ class TestEncodeTextRouting:
         import sys
         import types
 
-        p = CosmosPredict2Pipeline(experiment="e", config_file="c")
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
         p.device = "cpu"
         p.dtype = torch.float32
         p._model = None
@@ -461,9 +497,11 @@ class TestStubTextEncoder:
         assert emb.shape == (1, 16, 12)
         p._model.text_encoder.compute_text_embeddings_online.assert_not_called()
 
-    def test_encode_text_skips_stub_when_unset(self, monkeypatch):
+    def test_encode_text_skips_stub_when_encoder_on(self, monkeypatch):
         monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
-        p = self._pipeline()
+        p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
+        p.device = "cpu"
+        p.dtype = torch.float32
         text_encoder = MagicMock()
         text_encoder.compute_text_embeddings_online.return_value = torch.ones(
             1, 4, 8, dtype=torch.float32
@@ -472,6 +510,14 @@ class TestStubTextEncoder:
         p._model.text_encoder = text_encoder
         out = p.encode_text("hello")
         assert out.shape == (1, 4, 8)
+
+    def test_auto_mode_routes_to_stub_without_llm(self, monkeypatch):
+        monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
+        p = self._pipeline(dim=12)
+        p._model = MagicMock()
+        emb = p.encode_text("a prompt")
+        assert emb.shape == (1, 16, 12)
+        p._model.text_encoder.compute_text_embeddings_online.assert_not_called()
 
 
 class TestDownloadHelper:
