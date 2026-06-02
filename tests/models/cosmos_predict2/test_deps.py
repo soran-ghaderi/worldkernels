@@ -16,9 +16,11 @@ from worldkernels.models.cosmos_predict2 import deps
 @pytest.fixture(autouse=True)
 def _restore_sys_modules():
     snapshot = dict(sys.modules)
+    meta_path = list(sys.meta_path)
     setup = deps._setup_done
     yield
     deps._setup_done = setup
+    sys.meta_path[:] = meta_path
     for key in list(sys.modules):
         if key not in snapshot:
             del sys.modules[key]
@@ -142,6 +144,199 @@ class TestInjectTrainingStubs:
         m = torch.eye(3).unsqueeze(0)
         assert t3.matrix_to_rotation_6d(m).shape == (1, 6)
         assert t3.rotation_6d_to_matrix(torch.zeros(1, 6)).shape == (1, 3, 3)
+
+
+class TestNoOpTrainingStubs:
+    def test_noop_module_is_falsy_and_swallows_access(self):
+        m = deps._NoOpModule("x")
+        assert bool(m) is False
+        assert m.anything is not None
+        assert m.a.b.c is not None
+        assert m(1, 2, k=3) is not None
+        assert list(m) == []
+        with m as ctx:
+            assert ctx is not None
+
+    def test_noop_attr_is_subclassable(self, monkeypatch):
+        r"""A no-op'd lib used as a base class (e.g. webdataset.WebLoader) must be subclassable."""
+        name = "_pytest_absent_baseclass_lib"
+        monkeypatch.setattr(deps, "_TRAINING_ONLY", frozenset({name}))
+        sys.modules.pop(name, None)
+        deps._install_training_stub_finder()
+
+        import importlib
+
+        mod = importlib.import_module(name)
+
+        class Sub(mod.WebLoader):  # was: TypeError module() takes at most 2 arguments
+            pass
+
+        assert Sub() is not None
+        assert bool(mod.run) is False  # falsy guard (if wandb.run:) preserved
+        assert mod.log({"loss": 1}) is not None  # callable preserved
+        assert mod.AlertLevel.ERROR is not None  # nested attribute access preserved
+
+    def test_noop_attrs_support_multiple_inheritance(self, monkeypatch):
+        r"""Two stub symbols as bases must stay distinct: cosmos does
+        ``class WebDataset(DataPipeline, FluidInterface)`` where both resolve through a no-op'd
+        ``webdataset`` — a shared `_NoOp` singleton would raise ``duplicate base class``."""
+        name = "_pytest_absent_mi_lib"
+        monkeypatch.setattr(deps, "_TRAINING_ONLY", frozenset({name}))
+        sys.modules.pop(name, None)
+        deps._install_training_stub_finder()
+
+        import importlib
+
+        compat = importlib.import_module(f"{name}.compat")
+        pipeline = importlib.import_module(f"{name}.pipeline")
+        FluidInterface = compat.FluidInterface
+        DataPipeline = pipeline.DataPipeline
+
+        assert DataPipeline is not FluidInterface
+        assert issubclass(DataPipeline, deps._NoOp)
+        assert issubclass(FluidInterface, deps._NoOp)
+        assert compat.FluidInterface is FluidInterface  # cached: identity-stable on repeat access
+        assert pipeline.DataPipeline is DataPipeline
+
+        class WebDataset(DataPipeline, FluidInterface):
+            pass
+
+        assert issubclass(WebDataset, deps._NoOp)
+        assert bool(WebDataset()) is False  # value semantics preserved
+        assert WebDataset()(1, 2) is not None
+
+    def test_finder_stubs_absent_allowlisted(self, monkeypatch):
+        name = "_pytest_absent_training_lib"
+        monkeypatch.setattr(deps, "_TRAINING_ONLY", frozenset({name}))
+        sys.modules.pop(name, None)
+        deps._install_training_stub_finder()
+
+        import importlib
+
+        mod = importlib.import_module(name)
+        assert isinstance(mod, deps._NoOpModule)
+        assert bool(mod.run) is False
+        assert mod.log({"loss": 1}) is not None
+        assert mod.AlertLevel.ERROR is not None
+
+    def test_finder_handles_deep_submodule(self, monkeypatch):
+        r"""The botocore.config / multistorageclient.types case."""
+        monkeypatch.setattr(deps, "_TRAINING_ONLY", frozenset({"_pytest_fake_storage"}))
+        deps._install_training_stub_finder()
+        mod = __import__("_pytest_fake_storage.config", fromlist=["Thing"])
+        assert isinstance(mod, deps._NoOpModule)
+        assert mod.Thing is not None
+
+    def test_finder_does_not_shadow_installed(self, monkeypatch):
+        monkeypatch.setattr(deps, "_TRAINING_ONLY", frozenset({"colorsys"}))
+        sys.modules.pop("colorsys", None)
+        deps._install_training_stub_finder()
+        import colorsys
+
+        assert not isinstance(colorsys, deps._NoOpModule)
+        assert colorsys.rgb_to_hls(0.0, 0.0, 0.0) is not None
+
+    def test_finder_non_allowlisted_still_raises(self, monkeypatch):
+        monkeypatch.setattr(deps, "_TRAINING_ONLY", frozenset({"wandb"}))
+        deps._install_training_stub_finder()
+        with pytest.raises(ModuleNotFoundError):
+            import _pytest_definitely_absent_xyz123  # noqa: F401
+
+    def test_finder_idempotent(self):
+        deps._install_training_stub_finder()
+        n = sum(isinstance(f, deps._TrainingStubFinder) for f in sys.meta_path)
+        deps._install_training_stub_finder()
+        assert sum(isinstance(f, deps._TrainingStubFinder) for f in sys.meta_path) == n == 1
+
+    def test_allowlist_covers_known_blockers(self):
+        for name in ("wandb", "pynvml", "botocore", "multistorageclient", "albumentations", "av"):
+            assert name in deps._TRAINING_ONLY
+
+    def test_allowlist_covers_text_preprocessing(self):
+        for name in ("ftfy", "nltk"):
+            assert name in deps._TRAINING_ONLY
+
+    def test_allowlist_excludes_guarded_compute_libs(self):
+        r"""No-op'ing these would defeat cosmos's own try/except fallback or corrupt compute."""
+        excluded = ("natten", "flash_attn", "flash_attn_3", "cudnn", "triton", "iopath", "imageio")
+        for name in excluded:
+            assert name not in deps._TRAINING_ONLY
+
+    def test_flash_attn_shim_importable_but_raises(self):
+        deps._install_flash_attn_shim()
+        import flash_attn
+        from flash_attn.layers.rotary import apply_rotary_emb
+
+        assert isinstance(flash_attn, deps._FlashAttnStubModule)
+        with pytest.raises(RuntimeError, match="flash_attn is not installed"):
+            apply_rotary_emb(1, 2)
+        with pytest.raises(RuntimeError, match="flash_attn is not installed"):
+            flash_attn.flash_attn_varlen_func(1, 2, 3)
+
+    def test_lightning_module_is_subclassable_nn_module(self):
+        r"""LightningModule is a base class for instantiated components, so it must be a real
+        nn.Module — a no-op module is unsubclassable (the LAM(LightningModule) crash)."""
+        import torch.nn as nn
+
+        deps._inject_training_stubs()
+        from lightning import LightningModule
+
+        class _LAM(LightningModule):
+            def __init__(self):
+                super().__init__()
+                self.fc = nn.Linear(2, 2)
+
+        m = _LAM()
+        assert isinstance(m, nn.Module)
+        assert list(m.parameters())  # submodule registered
+        m.log("x", 1)  # lightning-only API is a no-op
+        assert m.global_step == 0
+
+    def test_lightning_submodules_and_dummies_importable(self):
+        deps._inject_training_stubs()
+        from lightning import LightningDataModule
+        from lightning.pytorch.cli import LightningCLI
+
+        class _DM(LightningDataModule):  # dummy base, subclassable
+            pass
+
+        assert _DM() is not None
+        assert LightningCLI is not None
+
+    def test_lightning_not_in_noop_allowlist(self):
+        assert "lightning" not in deps._TRAINING_ONLY
+        assert "pytorch_lightning" not in deps._TRAINING_ONLY
+
+    def test_flash_attn_shim_registers_distribution(self):
+        r"""flash_attn must look like a real distribution so transformers' detection works."""
+        import importlib.metadata as md
+
+        deps._install_flash_attn_shim()
+        assert md.version("flash_attn") == "2.8.0"
+        pd = md.packages_distributions()
+        assert "flash_attn" in pd  # the transformers PACKAGE_DISTRIBUTION_MAPPING KeyError site
+        assert [p.replace("_", "-") for p in pd["flash_attn"]] == ["flash-attn"]
+
+    def test_flash_attn_3_left_absent(self):
+        deps._install_flash_attn_shim()
+        with pytest.raises(ModuleNotFoundError):
+            import flash_attn_3  # noqa: F401
+
+    def test_flash_attn_shim_idempotent(self):
+        deps._install_flash_attn_shim()
+        n = sum(isinstance(f, deps._FlashAttnStubFinder) for f in sys.meta_path)
+        deps._install_flash_attn_shim()
+        assert sum(isinstance(f, deps._FlashAttnStubFinder) for f in sys.meta_path) == n == 1
+
+    def test_training_stubs_installs_finder(self, monkeypatch):
+        synth = "_pytest_absent_train_via_full"
+        monkeypatch.setattr(deps, "_TRAINING_ONLY", frozenset({synth}))
+        sys.modules.pop("megatron", None)
+        deps._inject_training_stubs()
+        assert any(isinstance(f, deps._TrainingStubFinder) for f in sys.meta_path)
+        import importlib
+
+        assert isinstance(importlib.import_module(synth), deps._NoOpModule)
 
 
 class TestFindCosmosPredict2:

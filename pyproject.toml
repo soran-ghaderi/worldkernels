@@ -9,7 +9,7 @@ description = "GPU-first world model simulation engine for serving learned world
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Soran Ghaderi", email = "soran.gdr.cs@gmail.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 keywords = [
     "world-model",
     "video-generation",
@@ -47,6 +47,7 @@ dependencies = [
     "uvicorn[standard]>=0.20",
     "websockets>=11.0",
     "huggingface_hub>=0.20",
+    "hf_transfer>=0.1",
     "safetensors>=0.4",
     "einops>=0.7",
     "imageio>=2.30",
@@ -57,27 +58,35 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Cosmos-Predict2 / DreamDojo inference runtime. Excludes training-only deps
+# (Lightning, lerobot, wandb, decord, boto3 — see [cosmos-train]).
 cosmos = [
     "transformers>=4.40",
     "torchvision>=0.15",
     "diffusers>=0.30",
     "accelerate>=0.25.0",
-    "lightning>=2.0",
     "omegaconf>=2.3",
     "hydra-core>=1.3",
     "peft>=0.15",
     "attrs>=23.0",
     "fvcore>=0.1",
     "scipy>=1.10",
-    "decord>=0.6",
     "h5py>=3.8",
     "sentencepiece>=0.2",
     "opencv-python>=4.8",
-    "boto3>=1.30",
     "numpydantic>=1.0",
     "qwen-vl-utils>=0.0.10",
     "pytz",
     "loguru>=0.7",
+]
+# Cosmos-Predict2 training deps: Lightning, robot-teleop (lerobot → evdev),
+# experiment tracking (wandb), video readers (decord), S3 checkpoint mirror
+# (boto3). Only needed if you fine-tune the model — never for inference.
+cosmos-train = [
+    "worldkernels[cosmos]",
+    "lightning>=2.0",
+    "decord>=0.6",
+    "boto3>=1.30",
     "wandb>=0.15",
     "lerobot>=0.5",
 ]
@@ -95,6 +104,9 @@ quant = [
 ]
 all = [
     "worldkernels[cosmos,diffusion,quant]",
+]
+all-train = [
+    "worldkernels[cosmos-train,diffusion,quant]",
 ]
 dev = [
     "pytest>=7.0",

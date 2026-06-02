@@ -45,6 +45,10 @@ def provision_weights(
     if progress is not None:
         progress.event("weights", "running", f"{card.hf_repo} · {variant or ''}".strip(" ·"))
 
+    from worldkernels.bootstrap.hf import enable_fast_hf_transfer
+
+    enable_fast_hf_transfer()
+
     try:
         from huggingface_hub import snapshot_download
         from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
