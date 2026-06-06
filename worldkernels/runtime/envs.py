@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from worldkernels.bootstrap import cache
+from worldkernels.bootstrap.deps import _resolve_uv
 from worldkernels.bootstrap.errors import FetchDisabledError
 from worldkernels.runtime.locks import EnvLock, deps_hash, torch_abi_tag
 
@@ -68,10 +69,12 @@ def materialize_env(
             f"run `worldkernels pull {model_id}` to materialize it",
         )
 
-    if shutil.which("uv") is None:
+    uv_bin = _resolve_uv()
+    if uv_bin is None:
         raise RuntimeError(
-            "uv not found on PATH; required for per-model env materialization. "
-            "uv is a core worldkernels dep — try `pip install --force-reinstall worldkernels`."
+            "uv not found; required for per-model env materialization. uv is a core "
+            "worldkernels dep — try `pip install --force-reinstall worldkernels` "
+            "(or unset WORLDKERNELS_FORCE_PIP)."
         )
 
     if progress is not None:
@@ -81,13 +84,13 @@ def materialize_env(
     if base.exists():
         shutil.rmtree(base)
 
-    _run(["uv", "venv", str(base)], progress=progress)
+    _run([uv_bin, "venv", str(base)], progress=progress)
 
     if requirements:
         py = str(venv_python(model_id))
         if progress is not None:
             progress.event("isolating", "running", f"installing {len(requirements)} deps …")
-        _run(["uv", "pip", "install", "--python", py, *requirements], progress=progress)
+        _run([uv_bin, "pip", "install", "--python", py, *requirements], progress=progress)
 
     lock = EnvLock(
         model_id=model_id,
