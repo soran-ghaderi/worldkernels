@@ -60,6 +60,11 @@ class ModelCard:
         auth_required: Whether the HF repo is gated.
         allow_patterns: HF snapshot_download patterns.
         variant_pattern: Per-variant HF download patterns (``{variant}`` is substituted).
+        weights_provider: ``"module:func"`` that provisions weights itself, taking the
+            variant and returning a local path. Set for models whose weights cannot be
+            fetched by a plain snapshot (e.g. DCP checkpoints needing conversion, or
+            monorepos where a blanket snapshot would mirror hundreds of GB). When set,
+            ``provision_weights`` calls it instead of ``snapshot_download``.
     """
 
     adapter: str
@@ -74,6 +79,7 @@ class ModelCard:
     auth_required: bool = False
     allow_patterns: list[str] | None = None
     variant_pattern: list[str] | None = None
+    weights_provider: str | None = None
     isolation: Literal["auto", "shared", "isolated"] = "auto"
     constraints: list[str] = field(default_factory=list)
     components: list[Component] = field(default_factory=list)
@@ -195,6 +201,8 @@ _DREAMDOJO_GIT = GitPackage(
     env_path_var="COSMOS_PREDICT2_PATH",
 )
 
+_DREAMDOJO_WEIGHTS = "worldkernels.models.dreamdojo.checkpoint:provision_dreamdojo_weights"
+
 
 def _register_builtins() -> None:
     register_model(
@@ -221,6 +229,7 @@ def _register_builtins() -> None:
         pip_extra="cosmos",
         git_packages=[_DREAMDOJO_GIT],
         variants={k: {"variant": k} for k in _dreamdojo_variants},
+        weights_provider=_DREAMDOJO_WEIGHTS,
     )
     register_model("dreamdojo", dreamdojo_card)
     register_model("nvidia/DreamDojo", dreamdojo_card)
@@ -238,9 +247,11 @@ def _register_builtins() -> None:
                 description=desc,
                 pip_extra="cosmos",
                 git_packages=[_DREAMDOJO_GIT],
+                weights_provider=_DREAMDOJO_WEIGHTS,
             ),
         )
 
+    _cosmos_variants = ("pretrained", "distilled", "post-trained")
     cosmos_card = ModelCard(
         adapter="generator_world",
         kind="generator",
@@ -250,6 +261,8 @@ def _register_builtins() -> None:
         description="Cosmos-Predict2.5-2B text-conditioned video generator",
         pip_extra="cosmos",
         git_packages=[_DREAMDOJO_GIT],
+        variants={k: {"variant": k} for k in _cosmos_variants},
+        weights_provider="worldkernels.models.cosmos_predict2.checkpoint:provision_cosmos_weights",
     )
     for name in ("cosmos-predict2", "cosmos_predict2", "nvidia/Cosmos-Predict2.5-2B"):
         register_model(name, cosmos_card)

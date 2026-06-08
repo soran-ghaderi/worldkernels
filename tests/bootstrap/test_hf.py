@@ -26,9 +26,7 @@ def _clean_env(monkeypatch):
 
 
 def _force_xet_present(monkeypatch):
-    monkeypatch.setattr(
-        hf._util, "find_spec", lambda name: object() if name == "hf_xet" else None
-    )
+    monkeypatch.setattr(hf._util, "find_spec", lambda name: object() if name == "hf_xet" else None)
 
 
 def test_high_performance_disabled_without_token(monkeypatch):
