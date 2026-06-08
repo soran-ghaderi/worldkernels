@@ -26,6 +26,38 @@ def _restore_sys_modules():
             del sys.modules[key]
 
 
+class TestQuietVendorTqdm:
+    def test_defaults_leave_false(self, monkeypatch):
+        fake = types.ModuleType("tqdm")
+
+        class _T:
+            def __init__(self, *a, **k):
+                self.kw = k
+
+        fake.tqdm = _T
+        monkeypatch.setitem(sys.modules, "tqdm", fake)
+        deps._quiet_vendor_tqdm()
+        import tqdm
+
+        assert tqdm.tqdm([1], desc="Generating samples").kw.get("leave") is False
+
+    def test_respects_explicit_leave_and_is_idempotent(self, monkeypatch):
+        fake = types.ModuleType("tqdm")
+
+        class _T:
+            def __init__(self, *a, **k):
+                self.kw = k
+
+        fake.tqdm = _T
+        monkeypatch.setitem(sys.modules, "tqdm", fake)
+        deps._quiet_vendor_tqdm()
+        deps._quiet_vendor_tqdm()
+        import tqdm
+
+        assert tqdm.tqdm([1], leave=True).kw.get("leave") is True
+        assert getattr(tqdm.tqdm, "_wk_leave_false", False) is True
+
+
 class TestInjectStub:
     def test_creates_module_with_attrs(self):
         deps._inject_stub("_pytest_stub_module", {"foo": 1, "bar": "x"})
@@ -272,6 +304,21 @@ class TestNoOpTrainingStubs:
             apply_rotary_emb(1, 2)
         with pytest.raises(RuntimeError, match="flash_attn is not installed"):
             flash_attn.flash_attn_varlen_func(1, 2, 3)
+
+    def test_reason1_transformers_compat_backfills_default_rope(self):
+        r"""reason1 looks up ROPE_INIT_FUNCTIONS['default'] (the 4.51-era key dropped in 5.x)."""
+        pytest.importorskip("transformers")
+        from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+
+        had_default = "default" in ROPE_INIT_FUNCTIONS
+        try:
+            deps.install_reason1_transformers_compat()
+            assert "default" in ROPE_INIT_FUNCTIONS
+            deps.install_reason1_transformers_compat()  # idempotent
+            assert "default" in ROPE_INIT_FUNCTIONS
+        finally:
+            if not had_default:
+                ROPE_INIT_FUNCTIONS.pop("default", None)
 
     def test_lightning_module_is_subclassable_nn_module(self):
         r"""LightningModule is a base class for instantiated components, so it must be a real

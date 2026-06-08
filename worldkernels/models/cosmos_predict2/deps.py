@@ -334,6 +334,44 @@ def _install_lightning_stub_finder() -> None:
     sys.meta_path.append(_LightningStubFinder())
 
 
+def install_reason1_transformers_compat() -> None:
+    r"""Back-fill transformers APIs the reason1 text encoder needs but newer transformers renamed.
+
+    transformers 5.x dropped the ``"default"`` entry from ``ROPE_INIT_FUNCTIONS`` (standard,
+    unscaled RoPE); the reason1 Qwen2.5-VL rotary embedding still looks it up by that name.
+    Registering an equivalent lets the encoder build on the installed transformers, so the DiT/VAE
+    path is not forced onto an older pin. Idempotent; a no-op when ``"default"`` already exists.
+    """
+    try:
+        import torch
+        from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS
+    except Exception:
+        return
+    if "default" in ROPE_INIT_FUNCTIONS:
+        return
+
+    def _default_rope(config, device=None, seq_len=None, layer_type=None):
+        if hasattr(config, "standardize_rope_params"):
+            config.standardize_rope_params()
+        rp = getattr(config, "rope_parameters", None)
+        if isinstance(rp, dict) and layer_type is not None and layer_type in rp:
+            rp = rp[layer_type]
+        if isinstance(rp, dict):
+            base = rp.get("rope_theta") or getattr(config, "rope_theta", 10000.0)
+            partial = rp.get("partial_rotary_factor", 1.0)
+        else:
+            base = getattr(config, "rope_theta", 10000.0)
+            partial = getattr(config, "partial_rotary_factor", 1.0)
+        head_dim = getattr(config, "head_dim", None) or (
+            config.hidden_size // config.num_attention_heads
+        )
+        dim = int(head_dim * partial)
+        idx = torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float)
+        return 1.0 / (base ** (idx / dim)), 1.0
+
+    ROPE_INIT_FUNCTIONS["default"] = _default_rope
+
+
 def _inject_stub(module_name: str, attrs: dict | None = None) -> types.ModuleType:
     if module_name in sys.modules:
         return sys.modules[module_name]
@@ -515,6 +553,35 @@ def _try_clone_cosmos_predict2() -> str | None:
     return None
 
 
+def _quiet_vendor_tqdm() -> None:
+    r"""Force the vendor sampler's tqdm bar to update in place and clear on completion.
+
+    cosmos's rectified-flow sampler wraps the denoise timesteps in
+    ``tqdm.tqdm(..., desc="Generating samples")`` with the default ``leave=True``, so every
+    ``denoise`` call leaves a finished bar in the terminal and successive steps stack up
+    ("steps / avg speed" never reset). Defaulting ``leave=False`` makes a single bar render in
+    place and erase itself, so progress never accumulates across denoise calls. The vendor
+    references ``tqdm.tqdm`` at call time, so patching the attribute takes effect for later calls.
+    """
+    try:
+        import tqdm as _tqdm
+    except ImportError:
+        return
+    if getattr(_tqdm.tqdm, "_wk_leave_false", False):
+        return
+
+    _orig = _tqdm.tqdm
+
+    class _LeaveFalseTqdm(_orig):  # type: ignore[misc, valid-type]
+        _wk_leave_false = True
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            kwargs.setdefault("leave", False)
+            super().__init__(*args, **kwargs)
+
+    _tqdm.tqdm = _LeaveFalseTqdm
+
+
 def ensure_cosmos_predict2() -> None:
     r"""Set up environment so ``import cosmos_predict2`` works for inference."""
     global _setup_done
@@ -526,6 +593,7 @@ def ensure_cosmos_predict2() -> None:
 
     _inject_training_stubs()
     _install_flash_attn_shim()
+    _quiet_vendor_tqdm()
 
     try:
         importlib.import_module("cosmos_predict2")
