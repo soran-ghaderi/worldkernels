@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Annotated, Union
+from typing import Annotated, Any, Union
 
 import tyro
 
@@ -49,7 +49,7 @@ class Serve:
     quiet: Annotated[bool, tyro.conf.arg(aliases=("-q",))] = False
 
     def run(self) -> None:
-        from worldkernels.cli.serve import run_serve
+        from worldkernels.cli.commands.serve import run_serve
 
         run_serve(
             host=self.host,
@@ -98,11 +98,28 @@ class Run:
     num_inference_steps: int | None = None
     guidance_scale: float | None = None
     prompt: str | None = None
+    image: Annotated[str | None, tyro.conf.arg(aliases=("-i",))] = None
+    actions: Annotated[
+        str | None,
+        tyro.conf.arg(
+            help="Path to a .npy of GR-1 action chunks ([T,384] or [N,12,384]) to drive an "
+            "action-conditioned rollout (see examples/gr1_prepare.py). Default: null actions.",
+        ),
+    ] = None
+    text_encoder: Annotated[
+        str | None,
+        tyro.conf.arg(
+            name="text-encoder",
+            help="auto|off|on. 'on' loads the reason1-7B encoder (CPU-offloaded) for real prompt "
+            "conditioning (needs a transformers compatible with NVIDIA reason1); default off uses "
+            "neutral text and relies on image + action conditioning.",
+        ),
+    ] = None
     no_fetch: bool = False
     quiet: Annotated[bool, tyro.conf.arg(aliases=("-q",))] = False
 
     def run(self) -> None:
-        from worldkernels.cli.run import run_session
+        from worldkernels.cli.commands.run import run_session
 
         run_session(
             model=self.model,
@@ -119,9 +136,13 @@ class Run:
             modalities=self.modalities,
             decode=self.decode,
             prompt=self.prompt,
+            image=self.image,
+            actions=self.actions,
             variant=self.variant,
             ckpt_path=self.ckpt_path,
-            model_kwargs=_extra_kwargs(self.num_inference_steps, self.guidance_scale),
+            model_kwargs=_extra_kwargs(
+                self.num_inference_steps, self.guidance_scale, self.text_encoder
+            ),
             allow_fetch=not self.no_fetch,
             quiet=self.quiet,
             profile=self.profile,
@@ -139,7 +160,7 @@ class Pull:
     quiet: Annotated[bool, tyro.conf.arg(aliases=("-q",))] = False
 
     def run(self) -> None:
-        from worldkernels.cli.pull import run_pull
+        from worldkernels.cli.commands.pull import run_pull
 
         run_pull(self.model, variant=self.variant, ckpt_path=self.ckpt_path, quiet=self.quiet)
 
@@ -151,7 +172,7 @@ class Models:
     all: bool = False
 
     def run(self) -> None:
-        from worldkernels.cli.pull import run_models
+        from worldkernels.cli.commands.pull import run_models
 
         run_models(show_all=self.all)
 
@@ -167,7 +188,7 @@ class Rm:
         if not self.model:
             print("Error: model name is required")
             raise SystemExit(1)
-        from worldkernels.cli.pull import run_rm
+        from worldkernels.cli.commands.pull import run_rm
 
         run_rm(self.model, variant=self.variant)
 
@@ -177,7 +198,7 @@ class CollectEnv:
     r"""Collect environment info: GPU, deps, plugins, hub, local cache, isolated envs."""
 
     def run(self) -> None:
-        from worldkernels.cli.collect_env import run_collect_env
+        from worldkernels.cli.commands.collect_env import run_collect_env
 
         run_collect_env()
 
@@ -190,7 +211,7 @@ class ConfigShow:
     json: bool = False
 
     def run(self) -> None:
-        from worldkernels.cli.config_cmd import run_config_show
+        from worldkernels.cli.commands.config_cmd import run_config_show
 
         run_config_show(self.profile, self.json)
 
@@ -204,7 +225,7 @@ class ModelInspect:
     config_json: str | None = None
 
     def run(self) -> None:
-        from worldkernels.cli.model import run_inspect
+        from worldkernels.cli.commands.model import run_inspect
 
         run_inspect(self.model, self.device, self.config_json)
 
@@ -221,7 +242,7 @@ class BenchLatency:
     profile: str | None = None
 
     def run(self) -> None:
-        from worldkernels.cli.bench import run_latency
+        from worldkernels.cli.commands.bench import run_latency
 
         run_latency(
             self.world, self.steps, self.height, self.width, self.device, profile=self.profile
@@ -241,7 +262,7 @@ class BenchThroughput:
     profile: str | None = None
 
     def run(self) -> None:
-        from worldkernels.cli.bench import run_throughput
+        from worldkernels.cli.commands.bench import run_throughput
 
         run_throughput(
             self.world,
@@ -262,7 +283,7 @@ class BenchStartup:
     device: str = "cpu"
 
     def run(self) -> None:
-        from worldkernels.cli.bench import run_startup
+        from worldkernels.cli.commands.bench import run_startup
 
         run_startup(self.world, self.device)
 
@@ -276,7 +297,7 @@ class BenchVRAM:
     resolutions: str = "256x256,480x848,720x1280"
 
     def run(self) -> None:
-        from worldkernels.cli.bench import run_vram
+        from worldkernels.cli.commands.bench import run_vram
 
         run_vram(self.world, self.device, self.resolutions)
 
@@ -293,7 +314,7 @@ class BenchProfile:
     output: str = "wk_profile"
 
     def run(self) -> None:
-        from worldkernels.cli.bench import run_profile
+        from worldkernels.cli.commands.bench import run_profile
 
         run_profile(self.world, self.steps, self.height, self.width, self.device, self.output)
 
@@ -303,7 +324,7 @@ class Plugins:
     r"""List discovered entry_point plugins."""
 
     def run(self) -> None:
-        from worldkernels.cli.plugins import run_list
+        from worldkernels.cli.commands.plugins import run_list
 
         run_list()
 
@@ -357,12 +378,18 @@ def _parse_set(value: str | None) -> dict | None:
     return out
 
 
-def _extra_kwargs(num_inference_steps: int | None, guidance_scale: float | None) -> dict:
+def _extra_kwargs(
+    num_inference_steps: int | None,
+    guidance_scale: float | None,
+    text_encoder: str | None = None,
+) -> dict:
     out: dict = {}
     if num_inference_steps is not None:
         out["num_inference_steps"] = num_inference_steps
     if guidance_scale is not None:
         out["guidance_scale"] = guidance_scale
+    if text_encoder is not None:
+        out["text_encoder"] = text_encoder
     return out
 
 
@@ -382,13 +409,84 @@ Command = tyro.conf.SuppressFixed[
 ]
 
 
+def _parse_output(value: str) -> Any:
+    from worldkernels.ui.verbosity import OutputMode
+
+    try:
+        return OutputMode(value)
+    except ValueError:
+        print("--output must be one of: auto, plain, json")
+        raise SystemExit(2)
+
+
+def _consume_global_flags(argv: list[str]) -> list[str]:
+    r"""Strip global ``-q``/``-v``/``-vv``/``--output`` flags and set process-global state."""
+    from worldkernels.ui.verbosity import OutputMode, Verbosity, set_output_mode, set_verbosity
+
+    rest: list[str] = []
+    verbosity = Verbosity.NORMAL
+    mode = OutputMode.AUTO
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in ("-q", "--quiet"):
+            verbosity = Verbosity.QUIET
+        elif tok in ("-vv", "--debug"):
+            verbosity = Verbosity.DEBUG
+        elif tok in ("-v", "--verbose"):
+            verbosity = Verbosity.DEBUG if verbosity >= Verbosity.VERBOSE else Verbosity.VERBOSE
+        elif tok == "--output":
+            i += 1
+            if i < len(argv):
+                mode = _parse_output(argv[i])
+        elif tok.startswith("--output="):
+            mode = _parse_output(tok.split("=", 1)[1])
+        else:
+            rest.append(tok)
+        i += 1
+    set_verbosity(verbosity)
+    set_output_mode(mode)
+    return rest
+
+
+_COMMAND_MODE: dict[str, str] = {
+    "serve": "serve",
+    "run": "generate",
+    "bench": "measure",
+    "pull": "fetch",
+    "models": "fetch",
+    "rm": "danger",
+    "inspect": "read",
+    "config-show": "read",
+    "collect-env": "read",
+    "plugins": "read",
+}
+
+
 def app() -> None:
     if "--version" in sys.argv or "-V" in sys.argv:
         from worldkernels import __version__
 
         print(f"worldkernels {__version__}")
         raise SystemExit(0)
-    cmd = tyro.cli(Command, description="worldkernels — GPU-first world model simulation engine")  # type: ignore[call-overload]
+
+    cleaned = _consume_global_flags(sys.argv[1:])
+
+    from worldkernels.ui import configure_logging, get_verbosity, set_mode
+
+    set_mode(_COMMAND_MODE.get(cleaned[0], "serve") if cleaned else "serve")
+    configure_logging(get_verbosity())
+
+    if not cleaned:
+        from worldkernels import ui
+
+        ui.banner()
+
+    cmd = tyro.cli(
+        Command,
+        args=cleaned,
+        description="worldkernels — GPU-first world model simulation engine",
+    )  # type: ignore[call-overload]
     cmd.run()
 
 

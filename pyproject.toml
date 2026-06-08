@@ -61,7 +61,9 @@ dependencies = [
 # Cosmos-Predict2 / DreamDojo inference runtime. Excludes training-only deps
 # (Lightning, lerobot, wandb, decord, boto3 — see [cosmos-train]).
 cosmos = [
-    "transformers>=4.40",
+    # cosmos_predict2 pins transformers==4.51.3; the reason1 text encoder breaks on 5.x
+    # (RoPE/processor API changes), so cap below 5 while allowing 4.49+.
+    "transformers>=4.49,<5",
     "torchvision>=0.15",
     "diffusers>=0.30",
     "accelerate>=0.25.0",
@@ -138,6 +140,7 @@ docs = [
 
 [project.scripts]
 worldkernels = "worldkernels.cli.main:app"
+wk = "worldkernels.cli.main:app"
 
 [project.entry-points."worldkernels.worlds"]
 dummy = "worldkernels.worlds.dummy:DummyWorld"
@@ -156,7 +159,7 @@ write_to = "worldkernels/_version.py"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["worldkernels*"]
+include = ["worldkernels*", "wk"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -194,5 +197,5 @@ line-ending = "lf"
 select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["worldkernels"]
+known-first-party = ["worldkernels", "wk"]
 combine-as-imports = true

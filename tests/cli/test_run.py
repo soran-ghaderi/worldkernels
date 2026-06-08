@@ -58,6 +58,29 @@ class TestRunSession:
         assert (tmp_path / "output.mp4").exists()
         assert any(tmp_path.glob("frame_*.png"))
 
+    def test_image_threads_into_world_config(self, monkeypatch):
+        r"""--image must reach WorldConfig.initial_image (init-image conditioning)."""
+        from worldkernels import WorldEngine
+
+        captured: dict = {}
+        orig = WorldEngine.create_session
+
+        def spy(self, world_key, config=None, seed=0):
+            captured["initial_image"] = config.initial_image
+            return orig(self, world_key, config=config, seed=seed)
+
+        monkeypatch.setattr(WorldEngine, "create_session", spy)
+        run_session(
+            model="dummy",
+            steps=1,
+            height=16,
+            width=16,
+            device="cpu",
+            image="/tmp/x.png",
+            decode=False,
+        )
+        assert captured["initial_image"] == "/tmp/x.png"
+
     def test_decode_false_skips_frames(self, tmp_path):
         run_session(
             model="dummy",
