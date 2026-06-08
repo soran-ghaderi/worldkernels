@@ -19,6 +19,8 @@ DEFAULT_VARIANT = "pretrained"
 WAN_VAE_REPO = "Wan-AI/Wan2.1-T2V-1.3B"
 WAN_VAE_FILE = "Wan2.1_VAE.pth"
 
+CR1_EMPTY_TEXT_EMB_FILE = "robot/action-cond/cr1_empty_string_text_embeddings.pt"
+
 COSMOS_CKPT_FILES = {
     "pretrained": "base/pre-trained/d20b7120-df3e-4911-919d-db6e08bad31c_ema_bf16.pt",
     "distilled": "base/distilled/575edf0f-d973-4c74-b52c-69929a08d0a5_ema_bf16.pt",
@@ -45,6 +47,21 @@ def download_vae_tokenizer() -> str:
 
     enable_fast_hf_transfer()
     return hf_hub_download(WAN_VAE_REPO, filename=WAN_VAE_FILE, repo_type="model")
+
+
+def download_empty_text_embedding() -> str:
+    r"""Local path to the precomputed CR1 empty-string text embedding.
+
+    The action-conditioned model was trained and is evaluated with the real (non-zero)
+    embedding of the empty prompt, not a zero tensor. With the 7B text encoder disabled
+    this precomputed ``.pt`` supplies the in-distribution neutral conditioning instead.
+    """
+    from huggingface_hub import hf_hub_download
+
+    from worldkernels.bootstrap.hf import enable_fast_hf_transfer
+
+    enable_fast_hf_transfer()
+    return hf_hub_download(COSMOS_HF_REPO, filename=CR1_EMPTY_TEXT_EMB_FILE, repo_type="model")
 
 
 def provision_cosmos_weights(variant: str | None = None) -> str:

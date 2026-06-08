@@ -18,7 +18,7 @@ import torch
 from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState
 from worldkernels.models.cosmos_predict2 import CosmosPredict2Latent, CosmosPredict2Pipeline
-from worldkernels.models.dreamdojo.checkpoint import download_dreamdojo_checkpoint
+from worldkernels.models.dreamdojo.checkpoint import CKPT_DIRS, download_dreamdojo_checkpoint
 from worldkernels.runtime.stages import StageExecMode, StageType, TransitionMode
 from worldkernels.worlds.base import InteractiveWorldModel
 
@@ -41,14 +41,19 @@ EXPERIMENTS = {
     "14b_gr1": "dreamdojo_14b_480_640_gr1",
 }
 
-CKPT_DIRS = {
-    "2b_pretrain": "2B_pretrain",
-    "2b_gr1": "2B_GR1_post-train",
-    "2b_agibot": "2B_AgiBot_post-train",
-    "2b_g1": "2B_G1_post-train",
-    "2b_yam": "2B_YAM_post-train",
-    "14b_pretrain": "14B_pretrain",
-    "14b_gr1": "14B_GR1_post-train",
+DEFAULT_VARIANT = "2b_pretrain"
+
+# Per-variant native geometry + action space. All DreamDojo action-conditioned
+# experiments train at 480x640; the pretrain "bridge" uses a 7-dim action, the
+# GR00T post-trains use the 384-dim unified action space.
+VARIANT_DEFAULTS: dict[str, dict[str, int]] = {
+    "2b_pretrain": {"action_dim": 7, "height": 480, "width": 640},
+    "2b_gr1": {"action_dim": 384, "height": 480, "width": 640},
+    "2b_agibot": {"action_dim": 384, "height": 480, "width": 640},
+    "2b_g1": {"action_dim": 384, "height": 480, "width": 640},
+    "2b_yam": {"action_dim": 384, "height": 480, "width": 640},
+    "14b_pretrain": {"action_dim": 7, "height": 480, "width": 640},
+    "14b_gr1": {"action_dim": 384, "height": 480, "width": 640},
 }
 
 
@@ -73,19 +78,27 @@ class DreamDojoWorld(InteractiveWorldModel):
         self,
         ckpt_path: str | None = None,
         experiment: str | None = None,
-        variant: str = "2b_pretrain",
-        action_dim: int = 384,
+        variant: str = DEFAULT_VARIANT,
+        action_dim: int | None = None,
         chunk_size: int = 12,
         num_inference_steps: int = 35,
-        guidance_scale: float = 3.0,
+        guidance_scale: float = 0.0,
+        text_encoder: str = "auto",
         **kwargs: Any,
     ) -> None:
+        # num_inference_steps/guidance_scale are load-time (constructor) settings — the
+        # vendor recipe is 35 steps with guidance 0.0 (no CFG); per-session WorldConfig
+        # values do not override them. action_dim and native resolution resolve per variant.
         self.ckpt_path = ckpt_path
         self.variant = variant
-        self.action_dim = action_dim
+        defaults = VARIANT_DEFAULTS.get(variant, VARIANT_DEFAULTS[DEFAULT_VARIANT])
+        self.action_dim = action_dim if action_dim is not None else defaults["action_dim"]
+        self.native_height = defaults["height"]
+        self.native_width = defaults["width"]
         self.chunk_size = chunk_size
         self.num_inference_steps = num_inference_steps
         self.guidance_scale = guidance_scale
+        self.text_encoder = text_encoder
         self._experiment_override = experiment
         self.device: str = "cpu"
         self.dtype: torch.dtype = torch.float32
@@ -95,7 +108,9 @@ class DreamDojoWorld(InteractiveWorldModel):
         self.device = device
         self.dtype = dtype
         experiment = self._experiment_override or EXPERIMENTS.get(self.variant, DEFAULT_EXPERIMENT)
-        self.pipeline = CosmosPredict2Pipeline(experiment=experiment, config_file=CONFIG_FILE)
+        self.pipeline = CosmosPredict2Pipeline(
+            experiment=experiment, config_file=CONFIG_FILE, text_encoder=self.text_encoder
+        )
         self.pipeline.load(device, dtype, self._resolve_checkpoint())
 
     def _resolve_checkpoint(self) -> str:
@@ -105,16 +120,28 @@ class DreamDojoWorld(InteractiveWorldModel):
         log.info("Downloading DreamDojo %s checkpoint...", self.variant)
         return download_dreamdojo_checkpoint(ckpt_dir)
 
+    def _geometry(self, config: WorldConfig) -> tuple[int, int, int]:
+        r"""Snap the generic WorldConfig defaults (480x848, 8 frames) to native geometry.
+
+        DreamDojo trains at a fixed per-variant resolution; the shared WorldConfig
+        defaults are Wan/Cosmos-oriented. An explicit non-default value is honored.
+        """
+        height = self.native_height if config.height == 480 else config.height
+        width = self.native_width if config.width == 848 else config.width
+        frames = self.chunk_size if config.frames_per_step == 8 else config.frames_per_step
+        return height, width, frames
+
     def warmup(self, config: WorldConfig) -> None:
         if self.pipeline is None:
             return
+        height, width, frames = self._geometry(config)
         null_action = torch.zeros(
             1, self.chunk_size, self.action_dim, device=self.device, dtype=self.dtype
         )
         self.pipeline.warmup(
-            height=config.height,
-            width=config.width,
-            frames_per_step=config.frames_per_step,
+            height=height,
+            width=width,
+            frames_per_step=frames,
             extras={"action": null_action},
         )
 
@@ -193,20 +220,23 @@ class DreamDojoWorld(InteractiveWorldModel):
 
     def create_initial_state(self, config: WorldConfig, seed: int) -> LatentState:
         assert self.pipeline is not None, "Pipeline not loaded — call initialize() first"
+        height, width, frames = self._geometry(config)
+        config.height, config.width, config.frames_per_step = height, width, frames
         cs = self.pipeline.create_initial_state(
             prompt=config.initial_prompt or "",
             initial_image=config.initial_image,
-            height=config.height,
-            width=config.width,
-            frames_per_step=config.frames_per_step,
+            height=height,
+            width=width,
+            frames_per_step=frames,
             seed=seed,
         )
         return LatentState(data=cs, device=self.device)
 
     def profile_vram(self, config: WorldConfig) -> float:
+        height, width, frames = self._geometry(config)
         return CosmosPredict2Pipeline.estimate_latent_vram_mb(
             CosmosPredict2Pipeline(experiment="", config_file=""),
-            height=config.height,
-            width=config.width,
-            frames_per_step=config.frames_per_step,
+            height=height,
+            width=width,
+            frames_per_step=frames,
         )

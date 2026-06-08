@@ -412,58 +412,20 @@ class TestEncodeImage:
 
 
 class TestEncodeTextRouting:
-    def test_uses_model_text_encoder_when_available(self):
+    def test_get_text_encoder_returns_cached(self):
+        r"""The CPU-offloaded encoder is built once and reused (never rebuilt per prompt)."""
         p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
-        p.device = "cpu"
-        p.dtype = torch.float32
-        text_encoder = MagicMock()
-        text_encoder.compute_text_embeddings_online.return_value = torch.ones(
-            1, 4, 8, dtype=torch.float32
-        )  # noqa: E501
-        p._model = MagicMock()
-        p._model.text_encoder = text_encoder
-        out = p.encode_text("hello")
-        assert out.shape == (1, 4, 8)
-        text_encoder.compute_text_embeddings_online.assert_called_once()
+        sentinel = MagicMock()
+        p._text_encoder = sentinel
+        assert p._get_text_encoder() is sentinel
 
-    def test_fallback_to_t5_helper(self, monkeypatch):
-        r"""When the model has no text_encoder, fall back to the cosmos t5 helper."""
-        import sys
-        import types
-
+    def test_get_text_encoder_requires_captured_config(self):
+        r"""Asking for the encoder before load() captured its config is a clear error."""
         p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
-        p.device = "cpu"
-        p.dtype = torch.float32
-        p._model = None
-
-        cosmos = types.ModuleType("cosmos_predict2")
-        src = types.ModuleType("cosmos_predict2._src")
-        predict2 = types.ModuleType("cosmos_predict2._src.predict2")
-        inference = types.ModuleType("cosmos_predict2._src.predict2.inference")
-        get_t5_emb_mod = types.ModuleType("cosmos_predict2._src.predict2.inference.get_t5_emb")
-
-        def fake_get_text_embedding(prompt):
-            assert prompt == "hello"
-            return torch.ones(1, 4, 8, dtype=torch.float32)
-
-        get_t5_emb_mod.get_text_embedding = fake_get_text_embedding
-        cosmos._src = src
-        src.predict2 = predict2
-        predict2.inference = inference
-        inference.get_t5_emb = get_t5_emb_mod
-
-        monkeypatch.setitem(sys.modules, "cosmos_predict2", cosmos)
-        monkeypatch.setitem(sys.modules, "cosmos_predict2._src", src)
-        monkeypatch.setitem(sys.modules, "cosmos_predict2._src.predict2", predict2)
-        monkeypatch.setitem(sys.modules, "cosmos_predict2._src.predict2.inference", inference)
-        monkeypatch.setitem(
-            sys.modules,
-            "cosmos_predict2._src.predict2.inference.get_t5_emb",
-            get_t5_emb_mod,
-        )
-
-        out = p.encode_text("hello")
-        assert out.shape == (1, 4, 8)
+        p._text_encoder = None
+        p._text_encoder_cfg = None
+        with pytest.raises(RuntimeError, match="encoder config"):
+            p._get_text_encoder()
 
 
 class TestStubTextEncoder:
@@ -485,9 +447,13 @@ class TestStubTextEncoder:
         p = self._pipeline()
         assert torch.equal(p._stub_text_emb("hello"), p._stub_text_emb("hello"))
 
-    def test_stub_emb_prompt_sensitive(self):
+    def test_stub_emb_is_neutral_zeros(self):
+        r"""Off-text path must be neutral (zeros), not random per-prompt: random embeddings
+        inject noise into the text cross-attention and corrupt generation."""
         p = self._pipeline()
-        assert not torch.equal(p._stub_text_emb("hello"), p._stub_text_emb("world"))
+        emb = p._stub_text_emb("hello")
+        assert torch.count_nonzero(emb).item() == 0
+        assert torch.equal(emb, p._stub_text_emb("a different prompt"))
 
     def test_encode_text_routes_to_stub(self, monkeypatch):
         monkeypatch.setenv("WK_STUB_TEXT_ENCODER", "1")
@@ -497,27 +463,60 @@ class TestStubTextEncoder:
         assert emb.shape == (1, 16, 12)
         p._model.text_encoder.compute_text_embeddings_online.assert_not_called()
 
+    def test_encode_text_routes_to_stub_does_not_download(self, monkeypatch):
+        monkeypatch.setenv("WK_STUB_TEXT_ENCODER", "1")
+        import worldkernels.models.cosmos_predict2.pipeline as pipe_mod
+
+        def _boom() -> str:
+            raise AssertionError("offline stub path must not download the CR1 embedding")
+
+        monkeypatch.setattr(pipe_mod, "download_empty_text_embedding", _boom)
+        p = self._pipeline(dim=12)
+        emb = p.encode_text("some prompt")
+        assert torch.count_nonzero(emb).item() == 0
+
     def test_encode_text_skips_stub_when_encoder_on(self, monkeypatch):
         monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
         p = CosmosPredict2Pipeline(experiment="e", config_file="c", text_encoder="on")
         p.device = "cpu"
         p.dtype = torch.float32
-        text_encoder = MagicMock()
-        text_encoder.compute_text_embeddings_online.return_value = torch.ones(
+        fake_enc = MagicMock()
+        fake_enc.compute_text_embeddings_online.return_value = torch.ones(
             1, 4, 8, dtype=torch.float32
         )
-        p._model = MagicMock()
-        p._model.text_encoder = text_encoder
+        p._text_encoder = fake_enc
         out = p.encode_text("hello")
         assert out.shape == (1, 4, 8)
+        fake_enc.compute_text_embeddings_online.assert_called_once()
 
-    def test_auto_mode_routes_to_stub_without_llm(self, monkeypatch):
+    def test_auto_mode_uses_real_empty_string_embedding(self, monkeypatch, tmp_path):
+        r"""Auto/off mode (the serving default) loads the real CR1 embedding, not zeros."""
         monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
+        import worldkernels.models.cosmos_predict2.pipeline as pipe_mod
+
+        emb_path = tmp_path / "cr1.pt"
+        torch.save(torch.ones(16, 12, dtype=torch.float32), emb_path)
+        monkeypatch.setattr(pipe_mod, "download_empty_text_embedding", lambda: str(emb_path))
+
         p = self._pipeline(dim=12)
         p._model = MagicMock()
         emb = p.encode_text("a prompt")
         assert emb.shape == (1, 16, 12)
+        assert torch.count_nonzero(emb).item() > 0
         p._model.text_encoder.compute_text_embeddings_online.assert_not_called()
+
+    def test_auto_mode_falls_back_to_zeros_when_unavailable(self, monkeypatch):
+        monkeypatch.delenv("WK_STUB_TEXT_ENCODER", raising=False)
+        import worldkernels.models.cosmos_predict2.pipeline as pipe_mod
+
+        def _boom() -> str:
+            raise RuntimeError("gated repo unreachable")
+
+        monkeypatch.setattr(pipe_mod, "download_empty_text_embedding", _boom)
+        p = self._pipeline(dim=12)
+        emb = p.encode_text("a prompt")
+        assert emb.shape == (1, 16, 12)
+        assert torch.count_nonzero(emb).item() == 0
 
 
 class TestDownloadHelper:

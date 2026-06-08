@@ -82,13 +82,24 @@ class TestInit:
     def test_defaults(self):
         w = DreamDojoWorld()
         assert w.variant == "2b_pretrain"
-        assert w.action_dim == 384
+        assert w.action_dim == 7  # pretrain bridge action space
         assert w.chunk_size == 12
         assert w.num_inference_steps == 35
-        assert w.guidance_scale == 3.0
+        assert w.guidance_scale == 0.0  # vendor action-conditioned recipe: no CFG
+        assert (w.native_height, w.native_width) == (480, 640)
         assert w.ckpt_path is None
         assert w._experiment_override is None
         assert w.pipeline is None
+
+    def test_variant_action_dim(self):
+        assert DreamDojoWorld(variant="2b_gr1").action_dim == 384
+        assert DreamDojoWorld(variant="2b_pretrain").action_dim == 7
+        assert DreamDojoWorld(variant="2b_gr1", action_dim=12).action_dim == 12  # explicit wins
+
+    def test_geometry_snaps_generic_to_native(self):
+        w = DreamDojoWorld(variant="2b_gr1")
+        assert w._geometry(WorldConfig()) == (480, 640, 12)  # generic 480x848/8 -> native
+        assert w._geometry(WorldConfig(height=512, width=768, frames_per_step=16)) == (512, 768, 16)
 
     def test_overrides(self):
         w = DreamDojoWorld(

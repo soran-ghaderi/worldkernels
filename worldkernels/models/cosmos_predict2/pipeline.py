@@ -9,7 +9,6 @@ directly by the action-conditioned `DreamDojoWorld`.
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import logging
 import os
@@ -21,6 +20,7 @@ from worldkernels.models.base import GenerationResult, VideoGenerator
 from worldkernels.models.cosmos_predict2.checkpoint import (
     COSMOS_HF_REPO,
     DEFAULT_VARIANT,
+    download_empty_text_embedding,
     download_vae_tokenizer,
     resolve_ckpt_file,
 )
@@ -134,6 +134,9 @@ class CosmosPredict2Pipeline(VideoGenerator):
         self._neg_text_emb: torch.Tensor | None = None
         self._loaded = False
         self._stub_text_emb_dim: int = 0
+        self._empty_text_emb: torch.Tensor | None = None
+        self._text_encoder: Any = None
+        self._text_encoder_cfg: Any = None
 
     @property
     def _text_encoder_enabled(self) -> bool:
@@ -226,13 +229,23 @@ class CosmosPredict2Pipeline(VideoGenerator):
         config.model.config.ema.enabled = False
         config.model.config.fsdp_shard_size = 1
 
-        if not self._text_encoder_enabled:
-            self._stub_text_emb_dim = config.model.config.net.crossattn_proj_in_channels
-            config.model.config.text_encoder_config = None
+        self._stub_text_emb_dim = config.model.config.net.crossattn_proj_in_channels
+        self._text_encoder_cfg = None
+        if self._text_encoder_enabled:
+            import copy
+
+            from omegaconf import OmegaConf
+
+            self._patch_text_encoder_paths()
+            tec = copy.deepcopy(config.model.config.text_encoder_config)
+            qcfg = tec.model_config.model_config
+            OmegaConf.set_struct(qcfg, False)
+            qcfg.attn_implementation = "sdpa"
+            qcfg.attn_implementation_autoset = False
+            self._text_encoder_cfg = tec
+        config.model.config.text_encoder_config = None
 
         self._patch_tokenizer_path()
-        if self._text_encoder_enabled:
-            self._patch_text_encoder_paths()
 
         config.validate()
         config.freeze()
@@ -295,30 +308,112 @@ class CosmosPredict2Pipeline(VideoGenerator):
         proc_mod.Processor.__init__ = _patched_proc
 
     def _stub_text_emb(self, prompt: str, *, seq_len: int = 16) -> torch.Tensor:
-        r"""Deterministic synthetic text embedding for text-encoder-free capture."""
-        seed = int.from_bytes(hashlib.sha256(prompt.encode()).digest()[:4], "big")
-        gen = torch.Generator(device="cpu").manual_seed(seed)
-        emb = torch.randn(1, seq_len, self._stub_text_emb_dim, generator=gen)
-        return emb.to(device=self.device, dtype=self.dtype)
+        r"""Zero text embedding — fallback only, used when the real empty-string embedding
+        cannot be fetched. The model was trained with the non-zero empty-string embedding,
+        so zeros are out-of-distribution and degrade action/image-conditioned rollouts.
+        """
+        return torch.zeros(
+            1, seq_len, self._stub_text_emb_dim, device=self.device, dtype=self.dtype
+        )
+
+    def _empty_string_emb(self) -> torch.Tensor:
+        r"""Real (non-zero) CR1 empty-string embedding, cached; zero fallback if unavailable.
+
+        This is the in-distribution neutral conditioning the action-conditioned model expects
+        (vendor inference loads the same precomputed tensor). Fetched once from the cosmos repo,
+        moved to the pipeline device/dtype, and reshaped to ``[1, T, D]``.
+        """
+        if self._empty_text_emb is not None:
+            return self._empty_text_emb
+        try:
+            emb = torch.load(download_empty_text_embedding(), map_location="cpu")
+            if isinstance(emb, (list, tuple)):
+                emb = emb[0]
+            if emb.dim() == 2:
+                emb = emb.unsqueeze(0)
+            emb = emb.to(device=self.device, dtype=self.dtype)
+            log.info(
+                "Using real CR1 empty-string text embedding: shape=%s, nonzero=%d",
+                tuple(emb.shape),
+                int(torch.count_nonzero(emb).item()),
+            )
+            if self._stub_text_emb_dim and emb.shape[-1] != self._stub_text_emb_dim:
+                log.warning(
+                    "CR1 embedding dim %d != model crossattn_proj_in_channels %d; the forward "
+                    "may error or produce garbage. This is likely the wrong embedding file.",
+                    emb.shape[-1],
+                    self._stub_text_emb_dim,
+                )
+        except Exception as exc:
+            log.warning(
+                "CR1 empty-string embedding unavailable (%r); falling back to a zero text "
+                "embedding, which may degrade quality. Use text_encoder='on' for real prompts.",
+                exc,
+            )
+            emb = self._stub_text_emb("")
+        self._empty_text_emb = emb
+        return emb
 
     def encode_text(self, prompt: str) -> torch.Tensor:
         r"""Compute the text embedding for ``prompt``.
 
         With the text encoder disabled (``text_encoder`` auto/off, or ``WK_STUB_TEXT_ENCODER``)
-        this returns a deterministic synthetic embedding so the 7B LLM is never loaded and
-        inference still runs.
+        this returns the real empty-string embedding (the 7B reason1 encoder is never loaded) so
+        action/image-conditioned inference runs with in-distribution neutral conditioning. With
+        ``text_encoder='on'`` the encoder is built once on CPU and reused for real prompts.
+        ``WK_STUB_TEXT_ENCODER`` forces the offline zero stub (deterministic, no network) for
+        capture/tests.
         """
         if not self._text_encoder_enabled:
-            return self._stub_text_emb(prompt)
-        if self._model is not None and getattr(self._model, "text_encoder", None) is not None:
-            emb = self._model.text_encoder.compute_text_embeddings_online(
-                data_batch={"ai_caption": [prompt], "images": None},
-                input_caption_key="ai_caption",
-            )
-            return emb.to(device=self.device, dtype=self.dtype)
-        from cosmos_predict2._src.predict2.inference.get_t5_emb import get_text_embedding
+            if os.environ.get("WK_STUB_TEXT_ENCODER"):
+                return self._stub_text_emb(prompt)
+            return self._empty_string_emb()
+        emb = self._get_text_encoder().compute_text_embeddings_online(
+            data_batch={"ai_caption": [prompt], "images": None},
+            input_caption_key="ai_caption",
+        )
+        return emb.to(device=self.device, dtype=self.dtype)
 
-        return get_text_embedding(prompt).to(device=self.device, dtype=self.dtype)
+    def _get_text_encoder(self) -> Any:
+        r"""Lazily build the reason1 text encoder on CPU, offloaded from the GPU DiT.
+
+        The cosmos encoder hardcodes ``flash_attention_2`` and moves inputs to ``cuda``; ``sdpa``
+        is forced at config time (the flash_attn stub raises if called) and inputs are coerced to
+        the encoder's device, so the 7B encoder runs on CPU and never competes with the DiT for
+        the 24 GB of VRAM.
+        """
+        if self._text_encoder is not None:
+            return self._text_encoder
+        if self._text_encoder_cfg is None:
+            raise RuntimeError(
+                "text_encoder='on' but the encoder config was not captured at load()"
+            )
+        from worldkernels.models.cosmos_predict2.deps import install_reason1_transformers_compat
+
+        install_reason1_transformers_compat()
+        from cosmos_predict2._src.predict2.text_encoders.text_encoder import TextEncoder
+
+        log.info("Building reason1 text encoder on CPU (one-time; offloaded from the GPU DiT)...")
+        try:
+            enc = TextEncoder(self._text_encoder_cfg, device="cpu")
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not build the reason1-7B text encoder. NVIDIA's reason1 encoder targets an "
+                f"older transformers and is incompatible with the installed version ({exc!r}). Use "
+                "text_encoder='off' (the default) for image + action conditioning, which needs no "
+                "text encoder, or install a compatible transformers to enable real text."
+            ) from exc
+        _orig_forward = enc.model.forward
+
+        def _forward_on_model_device(input_ids: Any, *args: Any, **kwargs: Any) -> Any:
+            dev = next(enc.model.parameters()).device
+            if hasattr(input_ids, "to"):
+                input_ids = input_ids.to(dev)
+            return _orig_forward(input_ids, *args, **kwargs)
+
+        enc.model.forward = _forward_on_model_device
+        self._text_encoder = enc
+        return enc
 
     def encode_image(
         self, image: Any, *, height: int, width: int, frames_per_step: int
