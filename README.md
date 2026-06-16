@@ -17,6 +17,8 @@ pip install worldkernels[cosmos]        # + Cosmos-Predict2.5 dependencies
 pip install worldkernels[all]           # Everything
 ```
 
+> **Note:** A native transformer fork (Epic1) is in progress to drop the `cosmos_predict2` dependency — native WanVAE (`WK_NATIVE_VAE` flag), rectified-flow sampler, and Wan2.1 DiT backbone. See issue #20 for tracking.
+
 For Cosmos-Predict2.5-2B, you also need the `cosmos_predict2` package:
 
 ```bash
