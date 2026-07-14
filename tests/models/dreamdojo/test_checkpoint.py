@@ -137,3 +137,27 @@ def test_existing_pt_short_circuits(monkeypatch, tmp_path):
         huggingface_hub, "snapshot_download", lambda *a, **k: pytest.fail("must not re-download")
     )
     assert ckpt.download_dreamdojo_checkpoint("2B_pretrain") == str(pt)
+
+
+class TestRemapStateDict:
+    def test_strips_net_prefix_and_training_artifacts(self):
+        import torch
+
+        from worldkernels.models.dreamdojo.checkpoint import remap_state_dict
+
+        sd = {
+            "net.blocks.0.self_attn.q_proj.weight": torch.zeros(1),
+            "net.blocks.0.self_attn._extra_state": torch.zeros(1),
+            "net.accum_video_sample_counter": torch.zeros(()),
+            "net.t_embedding_norm.weight": torch.ones(1),
+        }
+        out = remap_state_dict(sd)
+        assert set(out) == {"blocks.0.self_attn.q_proj.weight", "t_embedding_norm.weight"}
+
+    def test_load_net_rejects_unknown_variant(self):
+        import pytest
+
+        from worldkernels.models.dreamdojo.checkpoint import load_net
+
+        with pytest.raises(ValueError, match="unknown DreamDojo variant"):
+            load_net("3b_unknown")
