@@ -59,11 +59,12 @@ def _register_builtins() -> None:
     register_world("generator_world", GeneratorWorld)
 
     try:
-        from worldkernels.worlds.dreamdojo import DreamDojoWorld
+        from worldkernels.worlds.dreamdojo import DreamDojoStudentWorld, DreamDojoWorld
 
         register_world("dreamdojo", DreamDojoWorld)
+        register_world("dreamdojo_student", DreamDojoStudentWorld)
     except ImportError:
-        log.debug("DreamDojo world not available (cosmos_predict2 not installed)")
+        log.debug("DreamDojo world not available")
 
 
 # ---- entry_points discovery (lazy, once) --------------------------------

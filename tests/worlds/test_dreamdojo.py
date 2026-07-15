@@ -1,353 +1,289 @@
-r"""Tests for worldkernels/worlds/adapters/dreamdojo/adapter.py."""
+r"""CPU tests for the native DreamDojo world adapter."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 
 from worldkernels.core.action import Action
 from worldkernels.core.config import WorldConfig
-from worldkernels.core.observation import Observation
 from worldkernels.core.session import LatentState
-from worldkernels.models.cosmos_predict2 import (
-    CosmosPredict2Latent,
-    CosmosPredict2Pipeline,
-)
+from worldkernels.core.state import WorldState
+from worldkernels.models.dreamdojo.pipeline import DreamDojoPipeline
 from worldkernels.runtime.stages import StageExecMode, StageType, TransitionMode
-from worldkernels.worlds import dreamdojo as dd_adapter
-from worldkernels.worlds.dreamdojo import (
-    CKPT_DIRS,
-    EXPERIMENTS,
-    DreamDojoWorld,
-)
+from worldkernels.worlds.dreamdojo import DreamDojoWorld
 
-LATENT_CH = CosmosPredict2Pipeline.LATENT_CH
-SF = CosmosPredict2Pipeline.SPATIAL_FACTOR
+H, W = 480, 640
 
 
-def _make_pipeline_mock(h=480, w=640, frames=5):
-    fake_video = torch.zeros(1, 3, frames, h, w)
-    p = MagicMock(spec=CosmosPredict2Pipeline)
-    p.denoise.return_value = (
-        torch.randn(1, LATENT_CH, frames, h // SF, w // SF),
-        torch.zeros(3, h, w),
+def _make_pipeline_mock() -> MagicMock:
+    p = MagicMock(spec=DreamDojoPipeline)
+    p.generate_clip.return_value = (
+        torch.randn(1, 16, 4, H // 8, W // 8),
+        torch.zeros(1, 3, 13, H, W),
     )
-    p.decode.return_value = fake_video
+    p.to_uint8.side_effect = DreamDojoPipeline.to_uint8
+    p.decode_latent.return_value = torch.zeros(1, 3, 13, H, W)
     return p
 
 
-def _make_state(h=480, w=640, frames=5) -> LatentState:
-    return LatentState(
-        data=CosmosPredict2Latent(
-            latent=torch.randn(1, LATENT_CH, frames, h // SF, w // SF),
-            last_frame=torch.zeros(1, 3, h, w),
-            text_emb=torch.randn(1, 32, 16),
-            neg_text_emb=torch.randn(1, 32, 16),
-        ),
-        device="cpu",
-    )
+def _make_world(**kwargs) -> DreamDojoWorld:
+    world = DreamDojoWorld(**kwargs)
+    world.pipeline = _make_pipeline_mock()
+    return world
+
+
+def _make_state(world: DreamDojoWorld, seed: int = 7) -> LatentState:
+    return world.create_initial_state(WorldConfig(), seed=seed)
 
 
 class TestMetadata:
-    def test_name(self):
+    def test_name_and_modes(self):
         assert DreamDojoWorld.name == "dreamdojo"
-
-    def test_stage_modes(self):
         assert DreamDojoWorld.stage_exec_modes[StageType.ENCODE] == StageExecMode.SINGLE_SHOT
         assert DreamDojoWorld.stage_exec_modes[StageType.TRANSITION] == StageExecMode.ITERATIVE
-        assert DreamDojoWorld.stage_exec_modes[StageType.DECODE] == StageExecMode.SINGLE_SHOT
-
-    def test_transition_mode(self):
         assert DreamDojoWorld.transition_mode == TransitionMode.BIDIRECTIONAL
-
-    def test_no_streaming(self):
-        assert DreamDojoWorld.supports_streaming is False
         assert DreamDojoWorld.supports_kv_cache is False
+        assert DreamDojoWorld.supports_streaming is False
+
+    def test_unknown_variant_rejected(self):
+        with pytest.raises(ValueError, match="unknown DreamDojo variant"):
+            DreamDojoWorld(variant="3b_bad")
+
+    def test_all_variants_use_universal_action_dim(self):
+        for variant in ("2b_pretrain", "2b_gr1", "14b_yam"):
+            assert DreamDojoWorld(variant=variant).action_dim == 384
 
 
-class TestExperimentMap:
-    def test_known_variants(self):
-        assert "2b_pretrain" in EXPERIMENTS
-        assert "14b_pretrain" in EXPERIMENTS
-        assert "2b_gr1" in EXPERIMENTS
+class TestGeometry:
+    def test_snaps_generic_defaults_to_native(self):
+        world = _make_world()
+        assert world._geometry(WorldConfig()) == (480, 640, 12)
 
-    def test_ckpt_dirs_aligned(self):
-        for variant in EXPERIMENTS:
-            assert variant in CKPT_DIRS
-
-
-class TestInit:
-    def test_defaults(self):
-        w = DreamDojoWorld()
-        assert w.variant == "2b_pretrain"
-        assert w.action_dim == 7  # pretrain bridge action space
-        assert w.chunk_size == 12
-        assert w.num_inference_steps == 35
-        assert w.guidance_scale == 0.0  # vendor action-conditioned recipe: no CFG
-        assert (w.native_height, w.native_width) == (480, 640)
-        assert w.ckpt_path is None
-        assert w._experiment_override is None
-        assert w.pipeline is None
-
-    def test_variant_action_dim(self):
-        assert DreamDojoWorld(variant="2b_gr1").action_dim == 384
-        assert DreamDojoWorld(variant="2b_pretrain").action_dim == 7
-        assert DreamDojoWorld(variant="2b_gr1", action_dim=12).action_dim == 12  # explicit wins
-
-    def test_geometry_snaps_generic_to_native(self):
-        w = DreamDojoWorld(variant="2b_gr1")
-        assert w._geometry(WorldConfig()) == (480, 640, 12)  # generic 480x848/8 -> native
-        assert w._geometry(WorldConfig(height=512, width=768, frames_per_step=16)) == (512, 768, 16)
-
-    def test_overrides(self):
-        w = DreamDojoWorld(
-            ckpt_path="/p",
-            experiment="custom_exp",
-            variant="14b_gr1",
-            action_dim=7,
-            chunk_size=8,
-            num_inference_steps=2,
-            guidance_scale=1.5,
-            unused_extra="ignored",
-        )
-        assert w.ckpt_path == "/p"
-        assert w._experiment_override == "custom_exp"
-        assert w.variant == "14b_gr1"
-        assert w.action_dim == 7
-        assert w.chunk_size == 8
-
-
-class TestInitialize:
-    def test_with_ckpt_path_skips_download(self, monkeypatch):
-        last_kw = {}
-
-        def fake_ctor(**kw):
-            last_kw.update(kw)
-            p = _make_pipeline_mock()
-            p.load = MagicMock()
-            return p
-
-        monkeypatch.setattr(dd_adapter, "CosmosPredict2Pipeline", fake_ctor)
-        w = DreamDojoWorld(ckpt_path="/fake/ck", variant="2b_pretrain")
-        w.initialize("cpu", torch.float32)
-        assert last_kw["experiment"] == EXPERIMENTS["2b_pretrain"]
-        assert last_kw["config_file"] == dd_adapter.CONFIG_FILE
-        w.pipeline.load.assert_called_once_with("cpu", torch.float32, "/fake/ck")
-
-    def test_initialize_downloads_when_no_ckpt(self, monkeypatch):
-        download = MagicMock(return_value="/dl/ck")
-        monkeypatch.setattr(dd_adapter, "download_dreamdojo_checkpoint", download)
-
-        def fake_ctor(**kw):
-            p = _make_pipeline_mock()
-            p.load = MagicMock()
-            return p
-
-        monkeypatch.setattr(dd_adapter, "CosmosPredict2Pipeline", fake_ctor)
-        w = DreamDojoWorld(variant="2b_gr1")
-        w.initialize("cpu", torch.float32)
-        download.assert_called_once_with(CKPT_DIRS["2b_gr1"])
-
-    def test_experiment_override_wins(self, monkeypatch):
-        last_kw = {}
-
-        def fake_ctor(**kw):
-            last_kw.update(kw)
-            p = _make_pipeline_mock()
-            p.load = MagicMock()
-            return p
-
-        monkeypatch.setattr(dd_adapter, "CosmosPredict2Pipeline", fake_ctor)
-        w = DreamDojoWorld(ckpt_path="/c", experiment="my_exp")
-        w.initialize("cpu", torch.float32)
-        assert last_kw["experiment"] == "my_exp"
-
-    def test_unknown_variant_falls_back_to_default(self, monkeypatch):
-        last_kw = {}
-
-        def fake_ctor(**kw):
-            last_kw.update(kw)
-            p = _make_pipeline_mock()
-            p.load = MagicMock()
-            return p
-
-        monkeypatch.setattr(dd_adapter, "CosmosPredict2Pipeline", fake_ctor)
-        w = DreamDojoWorld(ckpt_path="/c", variant="not_a_real_variant")
-        w.initialize("cpu", torch.float32)
-        assert last_kw["experiment"] == dd_adapter.DEFAULT_EXPERIMENT
-
-
-class TestWarmup:
-    def test_no_pipeline_is_noop(self):
-        w = DreamDojoWorld()
-        w.warmup(WorldConfig())
-
-    def test_delegates_with_null_action(self):
-        w = DreamDojoWorld(action_dim=4, chunk_size=3)
-        w.device = "cpu"
-        w.dtype = torch.float32
-        w.pipeline = _make_pipeline_mock()
-        w.warmup(WorldConfig(height=64, width=64, frames_per_step=1))
-        kw = w.pipeline.warmup.call_args.kwargs
-        assert kw["height"] == 64
-        assert kw["width"] == 64
-        assert kw["frames_per_step"] == 1
-        action = kw["extras"]["action"]
-        assert action.shape == (1, 3, 4)
-        assert action.sum().item() == 0.0
+    def test_explicit_values_honored(self):
+        world = _make_world()
+        cfg = WorldConfig(height=240, width=320, frames_per_step=4)
+        assert world._geometry(cfg) == (240, 320, 4)
 
 
 class TestEncodeAction:
-    def _world(self, action_dim=7, chunk_size=4):
-        w = DreamDojoWorld(action_dim=action_dim, chunk_size=chunk_size)
-        w.device = "cpu"
-        w.dtype = torch.float32
-        return w
+    def test_null_action(self):
+        world = _make_world()
+        out = world.encode_action(Action("null", {}))
+        assert out.shape == (1, 12, 384)
+        assert torch.all(out == 0)
 
-    def test_null_action_returns_zeros(self):
-        w = self._world()
-        a = w.encode_action(Action("null"))
-        assert a.shape == (1, 4, 7)
-        assert torch.all(a == 0)
+    def test_broadcast_1d(self):
+        world = _make_world()
+        out = world.encode_action(Action("continuous", {"joints": [0.5] * 384}))
+        assert out.shape == (1, 12, 384)
+        assert torch.all(out == 0.5)
 
-    def test_single_step_joints_broadcast(self):
-        w = self._world()
-        a = w.encode_action(Action("continuous", {"joints": [0.1] * 7}))
-        assert a.shape == (1, 4, 7)
-        assert torch.allclose(a[0, 0], a[0, 3])
+    def test_pad_short_chunk(self):
+        world = _make_world()
+        joints = [[1.0] * 384] * 5
+        out = world.encode_action(Action("continuous", {"joints": joints}))
+        assert out.shape == (1, 12, 384)
+        assert torch.all(out[0, :5] == 1.0)
+        assert torch.all(out[0, 5:] == 0.0)
 
-    def test_default_joints_when_payload_missing_key(self):
-        w = self._world()
-        a = w.encode_action(Action("continuous", {}))
-        assert a.shape == (1, 4, 7)
-        assert torch.all(a == 0)
-
-    def test_multistep_joints_exact_chunk(self):
-        w = self._world(chunk_size=4)
-        joints = [[float(i)] * 7 for i in range(4)]
-        a = w.encode_action(Action("continuous", {"joints": joints}))
-        assert a.shape == (1, 4, 7)
-        assert a[0, 0, 0].item() == 0.0
-        assert a[0, 3, 0].item() == 3.0
-
-    def test_multistep_joints_padded(self):
-        w = self._world(chunk_size=5)
-        joints = [[1.0] * 7 for _ in range(3)]
-        a = w.encode_action(Action("continuous", {"joints": joints}))
-        assert a.shape == (1, 5, 7)
-        assert torch.all(a[0, 3:] == 0.0)
-
-    def test_multistep_joints_truncated(self):
-        w = self._world(chunk_size=2)
-        joints = [[float(i)] * 7 for i in range(10)]
-        a = w.encode_action(Action("continuous", {"joints": joints}))
-        assert a.shape == (1, 2, 7)
-        assert a[0, 1, 0].item() == 1.0
+    def test_truncate_long_chunk(self):
+        world = _make_world()
+        joints = [[1.0] * 384] * 20
+        out = world.encode_action(Action("continuous", {"joints": joints}))
+        assert out.shape == (1, 12, 384)
 
 
 class TestTransition:
-    def _world(self):
-        w = DreamDojoWorld(action_dim=7, chunk_size=4)
-        w.device = "cpu"
-        w.dtype = torch.float32
-        w.pipeline = _make_pipeline_mock()
-        return w
+    def test_deterministic_seed_advances_with_step(self):
+        world = _make_world()
+        state = _make_state(world, seed=100)
+        action = torch.randn(1, 12, 384)
 
-    def test_transition_invokes_denoise_with_action(self):
-        w = self._world()
-        state = _make_state()
-        action = torch.randn(1, 4, 7)
-        new_state = w.transition(state, action)
-        assert isinstance(new_state, LatentState)
-        kw = w.pipeline.denoise.call_args.kwargs
-        assert "extras" in kw and "action" in kw["extras"]
-        assert torch.equal(kw["extras"]["action"], action)
+        new_state = world.transition(state, action)
+        assert world.pipeline.generate_clip.call_args.kwargs["seed"] == 100
+        ws: WorldState = new_state.data
+        assert ws.step_index == 1
 
-    def test_transition_empty_action_uses_null_chunk(self):
-        w = self._world()
-        state = _make_state()
-        w.transition(state, torch.empty(0))
-        action = w.pipeline.denoise.call_args.kwargs["extras"]["action"]
-        assert action.shape == (1, 4, 7)
-        assert action.sum().item() == 0.0
+        world.transition(new_state, action)
+        assert world.pipeline.generate_clip.call_args.kwargs["seed"] == 101
+
+    def test_carries_last_frame_and_video(self):
+        world = _make_world()
+        state = _make_state(world)
+        new_state = world.transition(state, torch.randn(1, 12, 384))
+        ws: WorldState = new_state.data
+        assert ws.conditioning.image_cond is not None
+        assert ws.conditioning.image_cond.dtype == torch.uint8
+        assert ws.conditioning.image_cond.shape == (1, 3, H, W)
+        assert ws.extras["video"].shape == (1, 3, 13, H, W)
+
+    def test_empty_action_becomes_zero_chunk(self):
+        world = _make_world()
+        state = _make_state(world)
+        world.transition(state, torch.empty(0))
+        action = world.pipeline.generate_clip.call_args.args[1]
+        assert action.shape == (1, 12, 384)
+        assert torch.all(action == 0)
 
     def test_without_pipeline_raises(self):
-        w = DreamDojoWorld()
+        world = DreamDojoWorld()
         with pytest.raises(AssertionError):
-            w.transition(_make_state(), torch.empty(0))
+            world.transition(LatentState(data=None, device="cpu"), torch.zeros(1, 12, 384))
 
 
-class TestDecode:
-    def _world(self):
-        w = DreamDojoWorld()
-        w.device = "cpu"
-        w.dtype = torch.float32
-        w.pipeline = _make_pipeline_mock()
-        return w
+class TestDecodeObservation:
+    def test_frames_from_cached_video(self):
+        world = _make_world()
+        state = _make_state(world)
+        state = world.transition(state, torch.randn(1, 12, 384))
+        obs = world.decode_observation(state, ["frames"])
+        assert obs.frames is not None and len(obs.frames) == 13
+        assert len(obs.frames[0]) == H * W * 3
+        world.pipeline.decode_latent.assert_not_called()
 
-    def test_decode_frames(self):
-        w = self._world()
-        w.pipeline.decode.return_value = torch.zeros(1, 3, 2, 64, 64)
-        state = _make_state(h=64, w=64, frames=2)
-        obs = w.decode_observation(state, ["frames"])
-        assert isinstance(obs, Observation)
+    def test_frames_decode_fallback_without_cache(self):
+        world = _make_world()
+        state = _make_state(world)
+        obs = world.decode_observation(state, ["frames"])
         assert obs.frames is not None
-        assert len(obs.frames) == 2
+        world.pipeline.decode_latent.assert_called_once()
 
-    def test_decode_latent(self):
-        w = self._world()
-        state = _make_state(h=64, w=64, frames=2)
-        obs = w.decode_observation(state, ["latent"])
-        assert obs.latent is state.data.latent
+    def test_latent_modality(self):
+        world = _make_world()
+        state = _make_state(world)
+        obs = world.decode_observation(state, ["latent"])
+        assert obs.latent is not None
         assert obs.frames is None
-
-    def test_decode_nothing(self):
-        w = self._world()
-        state = _make_state(h=64, w=64, frames=2)
-        obs = w.decode_observation(state, [])
-        assert obs.frames is None
-        assert obs.latent is None
-
-    def test_without_pipeline_raises(self):
-        w = DreamDojoWorld()
-        with pytest.raises(AssertionError):
-            w.decode_observation(_make_state(), ["latent"])
 
 
 class TestCreateInitialState:
-    def test_delegates_to_pipeline(self):
-        w = DreamDojoWorld()
-        w.device = "cpu"
-        w.pipeline = _make_pipeline_mock()
-        fake = CosmosPredict2Latent(
-            latent=torch.zeros(1, LATENT_CH, 1, 8, 8),
-            last_frame=torch.zeros(1, 3, 64, 64),
-            text_emb=torch.zeros(1, 32, 16),
-        )
-        w.pipeline.create_initial_state.return_value = fake
-        cfg = WorldConfig(height=64, width=64, frames_per_step=1, initial_prompt="p")
-        state = w.create_initial_state(cfg, seed=11)
-        assert state.data is fake
-        w.pipeline.create_initial_state.assert_called_once_with(
-            prompt="p", initial_image=None, height=64, width=64, frames_per_step=1, seed=11
-        )
+    def test_zero_frame_without_image(self):
+        world = _make_world()
+        state = _make_state(world, seed=3)
+        ws: WorldState = state.data
+        assert ws.conditioning.image_cond is not None
+        assert torch.all(ws.conditioning.image_cond == 0)
+        assert ws.extras["seed"].item() == 3
+        assert ws.meta.height == 480 and ws.meta.width == 640
+        assert ws.step_index == 0
+
+    def test_initial_image_array(self):
+        world = _make_world()
+        img = torch.rand(3, 480, 640)
+        state = world.create_initial_state(WorldConfig(initial_image=img), seed=0)
+        ws: WorldState = state.data
+        assert ws.conditioning.image_cond.dtype == torch.uint8
+        assert not torch.all(ws.conditioning.image_cond == 0)
 
     def test_without_pipeline_raises(self):
-        w = DreamDojoWorld()
+        world = DreamDojoWorld()
         with pytest.raises(AssertionError):
-            w.create_initial_state(WorldConfig(), seed=0)
+            world.create_initial_state(WorldConfig(), seed=0)
 
 
-class TestEstimateVram:
-    def test_positive(self):
-        w = DreamDojoWorld()
-        v = w.profile_vram(WorldConfig(height=64, width=64, frames_per_step=1))
-        assert v > 0
+class TestInitialize:
+    def test_builds_native_pipeline(self):
+        world = DreamDojoWorld(variant="2b_gr1", num_inference_steps=10, guidance_scale=2.0)
+        with patch("worldkernels.worlds.dreamdojo.DreamDojoPipeline") as cls:
+            world.initialize("cuda", torch.bfloat16)
+        cls.assert_called_once_with("2b_gr1", num_steps=10, guidance=2.0)
+        cls.return_value.load.assert_called_once_with("cuda", torch.bfloat16, None)
 
-    def test_grows_with_resolution(self):
-        w = DreamDojoWorld()
-        s = w.profile_vram(WorldConfig(height=64, width=64, frames_per_step=1))
-        l_ = w.profile_vram(WorldConfig(height=512, width=512, frames_per_step=1))
-        assert l_ > s
+
+class TestProfileVram:
+    def test_positive_without_load(self):
+        world = DreamDojoWorld()
+        assert world.profile_vram(WorldConfig()) > 0
+
+    def test_grows_with_size(self):
+        small = DreamDojoWorld(variant="2b_gr1").profile_vram(WorldConfig())
+        large = DreamDojoWorld(variant="14b_gr1").profile_vram(WorldConfig())
+        assert large > small
+
+
+class TestStudentWorld:
+    def _make_student(self):
+        from worldkernels.worlds.dreamdojo import DreamDojoStudentWorld
+
+        world = DreamDojoStudentWorld(variant="2b_gr1")
+        p = MagicMock(spec=DreamDojoPipeline)
+        p.stream_chunk.return_value = (
+            torch.randn(1, 16, 4, H // 8, W // 8),
+            torch.zeros(1, 3, 12, H, W),
+        )
+        p.to_uint8.side_effect = DreamDojoPipeline.to_uint8
+        world.pipeline = p
+        return world
+
+    def test_metadata(self):
+        from worldkernels.worlds.dreamdojo import DreamDojoStudentWorld
+
+        assert DreamDojoStudentWorld.name == "dreamdojo_student"
+        assert DreamDojoStudentWorld.transition_mode == TransitionMode.CAUSAL
+        assert DreamDojoStudentWorld.supports_streaming is True
+
+    def test_first_step_uses_initial_frame_and_fresh_actions(self):
+        world = self._make_student()
+        state = world.create_initial_state(WorldConfig(), seed=5)
+        fresh = torch.randn(1, 12, 384)
+        new_state = world.transition(state, fresh)
+
+        args, kwargs = world.pipeline.stream_chunk.call_args
+        assert args[0].shape == (1, 3, 1, H, W)
+        torch.testing.assert_close(args[1], fresh)
+        assert kwargs["seed"] == 5
+
+        ws: WorldState = new_state.data
+        assert ws.extras["context_px"].shape == (1, 3, 9, H, W)
+        assert ws.extras["action_history"].shape == (1, 8, 384)
+        torch.testing.assert_close(ws.extras["action_history"], fresh[:, -8:])
+
+    def test_steady_step_prepends_action_history(self):
+        world = self._make_student()
+        state = world.create_initial_state(WorldConfig(), seed=5)
+        state = world.transition(state, torch.randn(1, 12, 384))
+        fresh = torch.randn(1, 12, 384)
+        world.transition(state, fresh)
+
+        args, kwargs = world.pipeline.stream_chunk.call_args
+        assert args[0].shape == (1, 3, 9, H, W)
+        assert args[1].shape == (1, 20, 384)
+        torch.testing.assert_close(args[1][:, 8:], fresh)
+        assert kwargs["seed"] == 6
+
+    def test_registered(self):
+        from worldkernels.worlds.dreamdojo import DreamDojoStudentWorld
+        from worldkernels.worlds.registry import get_world_class
+
+        assert get_world_class("dreamdojo_student") is DreamDojoStudentWorld
+
+
+class TestLatentActionEncoding:
+    def test_direct_latent_action_fills_slice(self):
+        world = _make_world()
+        z = [0.5] * 32
+        out = world.encode_action(Action("latent", {"latent_action": z}))
+        assert out.shape == (1, 12, 384)
+        assert torch.all(out[0, :, 352:384] == 0.5)
+        assert torch.all(out[0, :, :352] == 0)
+
+    def test_per_frame_latent_actions_padded(self):
+        world = _make_world()
+        z = torch.randn(3, 32)
+        out = world.encode_action(Action("latent", {"latent_action": z.tolist()}))
+        assert out.shape == (1, 12, 384)
+        torch.testing.assert_close(out[0, :3, 352:384], z)
+        torch.testing.assert_close(out[0, 3:, 352:384], z[-1:].expand(9, -1))
+
+    def test_frames_payload_uses_lam(self):
+        world = _make_world()
+        lam = MagicMock()
+        lam.encode_video.return_value = torch.ones(12, 32)
+        world._lam = lam
+        frames = (torch.rand(13, 3, 48, 64) * 255).to(torch.uint8)
+        out = world.encode_action(Action("latent", {"frames": frames.numpy()}))
+        lam.encode_video.assert_called_once()
+        assert torch.all(out[0, :, 352:384] == 1.0)
