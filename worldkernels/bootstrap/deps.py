@@ -22,7 +22,6 @@ log = logging.getLogger(__name__)
 
 
 _EXTRA_SENTINELS: dict[str, str] = {
-    "cosmos": "transformers",
     "diffusion": "diffusers",
 }
 

@@ -106,7 +106,7 @@ class TestRegisterBuiltinsImportErrors:
         caplog.set_level(logging.DEBUG, logger="worldkernels.worlds.registry")
         with monkeypatch.context() as m:
             m.setattr(builtins, "__import__", fake_import)
-            registry._REGISTRY.pop("cosmos_predict2", None)
+            registry._REGISTRY.pop("dreamdojo_student", None)
             _register_builtins()
 
 

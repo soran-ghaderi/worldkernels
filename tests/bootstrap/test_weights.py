@@ -65,15 +65,6 @@ def test_dreamdojo_card_has_no_unscoped_download():
     )
 
 
-def test_cosmos_card_has_no_unscoped_download():
-    card = get_model_card("cosmos-predict2")
-    assert card is not None
-    assert card.weights_provider is not None, (
-        "cosmos card must declare a weights_provider so provision_weights does not "
-        "mirror the entire 75 GB repo (only ~4.6 GB is needed)"
-    )
-
-
 def test_generic_card_still_uses_snapshot(monkeypatch):
     snap_calls = _spy_snapshot(monkeypatch)
     card = ModelCard(adapter="generator_world", hf_repo="some/repo")

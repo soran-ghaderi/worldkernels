@@ -137,7 +137,6 @@ def infer_card_from_hf(repo_id: str) -> ModelCard | None:
 
 
 _EXTRA_SENTINELS: dict[str, str] = {
-    "cosmos": "transformers",
     "diffusion": "diffusers",
 }
 
@@ -194,13 +193,6 @@ def resolve_model(model_id: str, **user_kwargs: Any) -> tuple[str, dict[str, Any
     return card.adapter, merged
 
 
-_DREAMDOJO_GIT = GitPackage(
-    name="DreamDojo",
-    url="https://github.com/NVIDIA/DreamDojo.git",
-    import_check="cosmos_predict2",
-    env_path_var="COSMOS_PREDICT2_PATH",
-)
-
 _DREAMDOJO_WEIGHTS = "worldkernels.models.dreamdojo.checkpoint:provision_dreamdojo_weights"
 
 
@@ -218,6 +210,9 @@ def _register_builtins() -> None:
         "2b_yam": "DreamDojo 2B fine-tuned on YAM robot",
         "14b_pretrain": "DreamDojo 14B pretrained (general)",
         "14b_gr1": "DreamDojo 14B fine-tuned on GR-1 robot",
+        "14b_agibot": "DreamDojo 14B fine-tuned on AgiBot",
+        "14b_g1": "DreamDojo 14B fine-tuned on G1 robot",
+        "14b_yam": "DreamDojo 14B fine-tuned on YAM robot",
     }
 
     dreamdojo_card = ModelCard(
@@ -225,15 +220,28 @@ def _register_builtins() -> None:
         kind="world",
         hf_repo="nvidia/DreamDojo",
         default_kwargs={"variant": "2b_pretrain"},
-        description="DreamDojo action-conditioned video world model",
-        pip_extra="cosmos",
-        git_packages=[_DREAMDOJO_GIT],
+        description="DreamDojo action-conditioned video world model (native)",
+        pip_extra="diffusion",
         variants={k: {"variant": k} for k in _dreamdojo_variants},
         weights_provider=_DREAMDOJO_WEIGHTS,
     )
     register_model("dreamdojo", dreamdojo_card)
     register_model("nvidia/DreamDojo", dreamdojo_card)
     register_model("DreamDojo", dreamdojo_card)
+
+    register_model(
+        "dreamdojo_student",
+        ModelCard(
+            adapter="dreamdojo_student",
+            kind="world",
+            pip_extra="diffusion",
+            default_kwargs={"variant": "2b_gr1"},
+            description=(
+                "DreamDojo distilled causal student (real-time streaming); "
+                "requires a user-supplied distilled checkpoint via ckpt_path"
+            ),
+        ),
+    )
 
     for variant, desc in _dreamdojo_variants.items():
         short = f"dreamdojo-{variant.replace('_', '-')}"
@@ -245,27 +253,10 @@ def _register_builtins() -> None:
                 hf_repo="nvidia/DreamDojo",
                 default_kwargs={"variant": variant},
                 description=desc,
-                pip_extra="cosmos",
-                git_packages=[_DREAMDOJO_GIT],
+                pip_extra="diffusion",
                 weights_provider=_DREAMDOJO_WEIGHTS,
             ),
         )
-
-    _cosmos_variants = ("pretrained", "distilled", "post-trained")
-    cosmos_card = ModelCard(
-        adapter="generator_world",
-        kind="generator",
-        generator="cosmos_predict2",
-        hf_repo="nvidia/Cosmos-Predict2.5-2B",
-        default_kwargs={"num_inference_steps": 35, "guidance_scale": 7.0},
-        description="Cosmos-Predict2.5-2B text-conditioned video generator",
-        pip_extra="cosmos",
-        git_packages=[_DREAMDOJO_GIT],
-        variants={k: {"variant": k} for k in _cosmos_variants},
-        weights_provider="worldkernels.models.cosmos_predict2.checkpoint:provision_cosmos_weights",
-    )
-    for name in ("cosmos-predict2", "cosmos_predict2", "nvidia/Cosmos-Predict2.5-2B"):
-        register_model(name, cosmos_card)
 
     _wan_variants = {
         "wan2.2-ti2v-5b": (
