@@ -1,4 +1,4 @@
-r"""Central registry of WorldKernels environment variables (vllm/envs.py analogue)."""
+r"""Central registry of WorldKernels environment variables."""
 
 from __future__ import annotations
 
