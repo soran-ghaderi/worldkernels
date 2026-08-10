@@ -54,6 +54,7 @@ dependencies = [
     "prometheus_client>=0.17",
     "uv>=0.5",
     "msgpack>=1.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -89,7 +90,6 @@ docs = [
     "mkdocstrings[python]>=0.18",
     "mike>=1.0.0",
     "tomli>=2.0.0",
-    "pyyaml>=6.0",
     "mkdocs-git-revision-date-localized-plugin>=1.0.0",
     "mkdocs-glightbox>=0.3.0",
     "mkdocs-blog-plugin>=0.1.0",

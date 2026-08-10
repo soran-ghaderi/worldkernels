@@ -1,7 +1,6 @@
 r"""Collect environment info: GPU, deps, plugins, hub, local cache, isolated envs.
 
-Mirrors `vllm collect-env` / `python -m torch.utils.collect_env`: prints what's
-useful when filing a bug report or sanity-checking a new install.
+Prints what's useful when filing a bug report or sanity-checking a new install.
 """
 
 from __future__ import annotations
@@ -29,6 +28,20 @@ def run_collect_env() -> None:
     _check_import("transformers", required=False)
     _check_import("diffusers", required=False)
     _check_import("flash_attn", required=False)
+
+    ui.rule("platform")
+    try:
+        from worldkernels.platforms import current_platform
+        from worldkernels.utils.device_info import detect_target_device
+
+        platform = current_platform()
+        ui.field("target device", detect_target_device())
+        ui.field("platform", platform.name)
+        ui.field("device count", platform.device_count())
+        ui.field("attention backend", platform.default_attention_backend())
+        ui.field("default dtype", str(platform.default_dtype()))
+    except Exception as exc:
+        ui.err(f"platform probe failed: {exc}")
 
     ui.rule("gpu")
     try:
@@ -83,6 +96,24 @@ def run_collect_env() -> None:
             ui.line(f"    {m.model_id}{v}")
     except Exception as exc:
         ui.err(f"cache scan failed: {exc}")
+
+    ui.rule("environment variables · WK_* registry")
+    try:
+        import os
+
+        from worldkernels import envs as wk_env_registry
+
+        set_vars = wk_env_registry.set_wk_vars()
+        for name, value in sorted(set_vars.items()):
+            ui.field(name, value, value_style="green")
+        for name in wk_env_registry.EXTERNAL_VARIABLES:
+            if name in os.environ:
+                shown = "***" if name == "HF_TOKEN" else os.environ[name]
+                ui.field(name, shown)
+        if not set_vars:
+            ui.info("(no WK_* variables set)")
+    except Exception as exc:
+        ui.err(f"env registry failed: {exc}")
 
     ui.rule("runtime config · defaults, WK_* env applied")
     try:

@@ -32,9 +32,9 @@ def run_models(show_all: bool = False) -> None:
 
         hub = list_models()
         ui.rule("hub models")
-        t = ui.table("model", "description")
+        t = ui.table("model", "description", "isolation")
         for name, card in sorted(hub.items()):
-            t.add_row(name, card.description or "")
+            t.add_row(name, card.description or "", card.isolation)
         ui.print_table(t)
         return
 
@@ -48,8 +48,10 @@ def run_models(show_all: bool = False) -> None:
         )
         return
 
+    from worldkernels.worlds.hub import get_model_card
+
     ui.rule(f"local models · {cache.home()}")
-    t = ui.table("model", "adapter", "size")
+    t = ui.table("model", "adapter", "size", "isolation")
     for m in sorted(manifests, key=lambda x: x.model_id):
         variant_str = f":{m.variant}" if m.variant else ""
         size_str = ""
@@ -57,7 +59,8 @@ def run_models(show_all: bool = False) -> None:
             sz = cache.hf_cache_size_bytes(m.hf_repo)
             if sz:
                 size_str = _human(sz)
-        t.add_row(f"{m.model_id}{variant_str}", m.adapter, size_str)
+        tier = getattr(get_model_card(m.model_id), "isolation", "")
+        t.add_row(f"{m.model_id}{variant_str}", m.adapter, size_str, tier)
     ui.print_table(t)
 
 

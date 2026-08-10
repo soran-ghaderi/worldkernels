@@ -20,6 +20,16 @@ def run_serve(
     quiet: bool = False,
     profile: str | None = None,
     overrides: dict | None = None,
+    config_file: str | None = None,
+    allowed_origins: list[str] | None = None,
+    allowed_methods: list[str] | None = None,
+    allowed_headers: list[str] | None = None,
+    allow_credentials: bool = False,
+    ssl_keyfile: str | None = None,
+    ssl_certfile: str | None = None,
+    uvicorn_log_level: str = "info",
+    disable_access_log: bool = False,
+    root_path: str = "",
 ) -> None:
     import uvicorn
 
@@ -33,8 +43,24 @@ def run_serve(
     if quiet:
         os.environ["WORLDKERNELS_QUIET"] = "1"
 
-    runtime_config, _ = resolve_runtime_config(profile=profile, cli_overrides=overrides)
-    cfg = ServerConfig(host=host, port=port, max_sessions=max_sessions, api_key=api_key)
+    runtime_config, sources = resolve_runtime_config(
+        profile=profile, cli_overrides=overrides, config_file=config_file
+    )
+    cfg = ServerConfig(
+        host=host,
+        port=port,
+        max_sessions=max_sessions,
+        api_key=api_key,
+        allowed_origins=allowed_origins or ["*"],
+        allowed_methods=allowed_methods or ["*"],
+        allowed_headers=allowed_headers or ["*"],
+        allow_credentials=allow_credentials,
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
+        uvicorn_log_level=uvicorn_log_level,  # type: ignore[arg-type]
+        disable_access_log=disable_access_log,
+        root_path=root_path,
+    )
     app = create_app(cfg, device=device, runtime_config=runtime_config)
 
     if model is not None:
@@ -52,14 +78,70 @@ def run_serve(
             )
             progress.finalize(success=True, summary=f"model={model}")
 
-    ui.ok(f"serving on http://{host}:{port}")
-    if ui.resolve_output_mode() == ui.OutputMode.AUTO and ui.capabilities().is_terminal:
-        _serve_with_dashboard(app, host, port)
-    else:
-        uvicorn.run(app, host=host, port=port)
+    print_startup(app, cfg, runtime_config, sources, model=model, device=device)
+
+    uvicorn_kwargs: dict[str, Any] = {
+        "log_level": cfg.uvicorn_log_level,
+        "access_log": not cfg.disable_access_log,
+        "ssl_keyfile": cfg.ssl_keyfile,
+        "ssl_certfile": cfg.ssl_certfile,
+    }
+    try:
+        if ui.resolve_output_mode() == ui.OutputMode.AUTO and ui.capabilities().is_terminal:
+            _serve_with_dashboard(app, host, port, uvicorn_kwargs)
+        else:
+            uvicorn.run(app, host=host, port=port, **uvicorn_kwargs)
+    finally:
+        engine = app.state.engine
+        ui.info(f"[shutdown] closing {len(engine.list_sessions())} session(s)")
+        engine.shutdown()
+        ui.info("[shutdown] engine released")
 
 
-def _serve_with_dashboard(app: Any, host: str, port: int) -> None:
+def base_url(cfg: Any) -> str:
+    scheme = "https" if cfg.ssl_certfile else "http"
+    return f"{scheme}://{cfg.host}:{cfg.port}{cfg.root_path}"
+
+
+def enumerate_routes(app: Any) -> list[tuple[str, list[str]]]:
+    r"""``(path, methods)`` per mounted route; websocket routes report ``WEBSOCKET``."""
+    out: list[tuple[str, list[str]]] = []
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        if path is None:
+            continue
+        methods = getattr(route, "methods", None)
+        out.append((path, sorted(methods) if methods else ["WEBSOCKET"]))
+    return out
+
+
+def print_startup(
+    app: Any,
+    cfg: Any,
+    runtime_config: Any,
+    sources: dict[str, str],
+    model: str | None,
+    device: str,
+) -> None:
+    from worldkernels import __version__, ui
+    from worldkernels.cli.commands.config_cmd import print_runtime_config
+
+    url = base_url(cfg)
+    ui.rule(f"worldkernels v{__version__} · serving {model or '(no model preloaded)'}")
+    ui.field("device", device)
+    ui.field("endpoint", url)
+    if cfg.api_key:
+        ui.field("auth", "bearer token required")
+    print_runtime_config(runtime_config, sources)
+    ui.line("Available routes are:")
+    for path, methods in enumerate_routes(app):
+        ui.line(f"  Route: {path}, Methods: {', '.join(methods)}")
+    ui.field("health", f"{url}/health")
+    ui.field("metrics", f"{url}/metrics")
+    ui.field("docs", f"{url}/docs")
+
+
+def _serve_with_dashboard(app: Any, host: str, port: int, uvicorn_kwargs: dict[str, Any]) -> None:
     r"""Run uvicorn in a worker thread and a live metrics panel on the main thread."""
     import threading
     import time
@@ -71,7 +153,9 @@ def _serve_with_dashboard(app: Any, host: str, port: int) -> None:
     from worldkernels.ui.console import console
 
     engine = app.state.engine
-    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning"))
+    server = uvicorn.Server(
+        uvicorn.Config(app, host=host, port=port, **{**uvicorn_kwargs, "log_level": "warning"})
+    )
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
 

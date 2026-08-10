@@ -19,12 +19,16 @@ def bench_env(
     width: int = 64,
     num_sessions: int = 1,
     profile: str | None = None,
+    overrides: dict | None = None,
+    config_file: str | None = None,
 ) -> Generator[tuple[WorldEngine, list[Session]], None, None]:
     r"""Shared setup/teardown for benchmark commands."""
-    if profile is not None:
-        wk = WorldEngine(profile, device=device, max_sessions=max_sessions)
-    else:
-        wk = WorldEngine(device=device, max_sessions=max_sessions)
+    from worldkernels.config import resolve_runtime_config
+
+    runtime_config, _ = resolve_runtime_config(
+        profile=profile, cli_overrides=overrides, config_file=config_file
+    )
+    wk = WorldEngine(runtime_config, device=device, max_sessions=max_sessions)
     wk.load_model(world)
     world_key = world.split("/")[-1]
     config = WorldConfig(height=height, width=width, frames_per_step=1)
@@ -38,9 +42,24 @@ def bench_env(
 
 
 def run_latency(
-    world: str, steps: int, height: int, width: int, device: str, profile: str | None = None
+    world: str,
+    steps: int,
+    height: int,
+    width: int,
+    device: str,
+    profile: str | None = None,
+    overrides: dict | None = None,
+    config_file: str | None = None,
 ) -> None:
-    with bench_env(world, device, height=height, width=width, profile=profile) as (_, sessions):
+    with bench_env(
+        world,
+        device,
+        height=height,
+        width=width,
+        profile=profile,
+        overrides=overrides,
+        config_file=config_file,
+    ) as (_, sessions):
         session = sessions[0]
         latencies: list[float] = []
         with ui.StepProgress(steps, f"latency · {world}", ui.resolve_output_mode()) as sp:
@@ -73,6 +92,8 @@ def run_throughput(
     width: int,
     device: str,
     profile: str | None = None,
+    overrides: dict | None = None,
+    config_file: str | None = None,
 ) -> None:
     with bench_env(
         world,
@@ -82,6 +103,8 @@ def run_throughput(
         width=width,
         num_sessions=num_sessions,
         profile=profile,
+        overrides=overrides,
+        config_file=config_file,
     ) as (_, sessions):
         deltas: list[float] = []
         with ui.StepProgress(

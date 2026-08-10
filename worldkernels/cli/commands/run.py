@@ -33,6 +33,7 @@ def run_session(
     quiet: bool = False,
     profile: str | None = None,
     overrides: dict | None = None,
+    config_file: str | None = None,
 ) -> None:
     from worldkernels import Action, WorldConfig, WorldEngine
     from worldkernels.bootstrap import ProgressController
@@ -46,7 +47,9 @@ def run_session(
     if output_format not in valid_formats:
         raise ValueError(f"--output-format must be one of {valid_formats}, got '{output_format}'")
 
-    runtime_config, _ = resolve_runtime_config(profile=profile, cli_overrides=overrides)
+    runtime_config, _ = resolve_runtime_config(
+        profile=profile, cli_overrides=overrides, config_file=config_file
+    )
     wk = WorldEngine(runtime_config, device=device)
     with ProgressController(mode=cli_mode()) as progress:
         wk.load_model(
