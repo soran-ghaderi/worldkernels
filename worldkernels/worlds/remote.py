@@ -1,4 +1,4 @@
-r"""Out-of-process world proxy (ADR-012 Tier 2).
+r"""Out-of-process world proxy for isolated models.
 
 ``RemoteWorld`` implements the same `InteractiveWorldModel` interface as an
 in-process world but forwards every method to a subprocess via Unix-socket RPC

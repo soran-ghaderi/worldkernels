@@ -1,4 +1,4 @@
-r"""Dependency resolver: decide shared vs isolated tier (ADR-012).
+r"""Dependency resolver: decide shared vs isolated tier.
 
 Wraps ``uv pip compile`` against the union of currently-loaded model constraints
 plus the incoming model's constraints. Pure function over constraints — no

@@ -4,8 +4,6 @@ Threads execution state — attention metadata, parallel-state degrees, the
 active cache backend, the current CUDA stream — through a model forward pass
 without passing it as kwargs through every layer. Components read it via
 `get_forward_context()`; the runner sets it via `set_forward_context()`.
-
-Ported in spirit from ``vllm_omni/diffusion/forward_context.py``.
 """
 
 from __future__ import annotations

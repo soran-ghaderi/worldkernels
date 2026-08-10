@@ -1,9 +1,9 @@
-r"""Deferred optional-dependency handling (ADR-013).
+r"""Deferred optional-dependency handling.
 
 A missing optional package becomes a `PlaceholderModule` rather than an
 ``ImportError`` at import time. The placeholder is safe to pass around and
 assign; it raises only when an attribute is *used*, with a message naming the
-``worldkernels`` extra to install. Mirrors vLLM's ``vllm/utils/import_utils.py``.
+``worldkernels`` extra to install.
 """
 
 from __future__ import annotations

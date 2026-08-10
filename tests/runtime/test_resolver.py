@@ -1,4 +1,4 @@
-r"""Resolver: SharedPlan vs IsolatedPlan decision (ADR-012)."""
+r"""Resolver: SharedPlan vs IsolatedPlan decision."""
 
 from __future__ import annotations
 

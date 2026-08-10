@@ -139,7 +139,7 @@ def _title(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Metrics extraction (adapted from vLLM's generate_metrics.py)
+# Metrics extraction
 # ---------------------------------------------------------------------------
 
 
@@ -155,7 +155,7 @@ class MetricExtractor(ast.NodeVisitor):
 
     Handles three patterns:
     1. Direct constructor: ``Histogram("name", "doc")``
-    2. Factory method (vLLM-style): ``self._histogram_cls(name=..., documentation=...)``
+    2. Factory method: ``self._histogram_cls(name=..., documentation=...)``
     3. Docstring listing: ``- wk_metric_name (histogram)``
     """
 
