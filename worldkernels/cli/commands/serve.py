@@ -104,15 +104,39 @@ def base_url(cfg: Any) -> str:
 
 
 def enumerate_routes(app: Any) -> list[tuple[str, list[str]]]:
-    r"""``(path, methods)`` per mounted route; websocket routes report ``WEBSOCKET``."""
+    r"""``(path, methods)`` per mounted route; websocket routes report ``WEBSOCKET``.
+
+    Descends into included routers, which newer FastAPI keeps as a nested object
+    instead of flattening into ``app.routes``.
+    """
     out: list[tuple[str, list[str]]] = []
-    for route in app.routes:
-        path = getattr(route, "path", None)
-        if path is None:
-            continue
-        methods = getattr(route, "methods", None)
-        out.append((path, sorted(methods) if methods else ["WEBSOCKET"]))
+    _collect_routes(getattr(app, "routes", []), out)
     return out
+
+
+def _collect_routes(routes: Any, out: list[tuple[str, list[str]]]) -> None:
+    for route in routes:
+        resolved = getattr(route, "effective_route_contexts", None)
+        if callable(resolved):
+            _collect_routes(list(resolved()), out)
+            continue
+        nested = getattr(route, "routes", None) or getattr(
+            getattr(route, "original_router", None), "routes", None
+        )
+        if nested:
+            _collect_routes(nested, out)
+            continue
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if not path:
+            inner = getattr(route, "original_route", None) or getattr(
+                route, "starlette_route", None
+            )
+            path = getattr(inner, "path", None)
+            methods = methods or getattr(inner, "methods", None)
+        if not path:
+            continue
+        out.append((path, sorted(methods) if methods else ["WEBSOCKET"]))
 
 
 def print_startup(

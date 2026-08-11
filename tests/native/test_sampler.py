@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tests.native._assert import assert_close_to_reference, load_reference
 
 
 def test_sampler_step_replays_reference(reference_dir, fixture_cfg):
+    pytest.importorskip("diffusers")
     from worldkernels.models.schedulers.flow_unipc import FlowUniPCMultistepScheduler
 
     manifest = json.loads((reference_dir / "manifest.json").read_text())
     if "sampler_step_x_t_next" not in manifest["tensors"]:
-        import pytest
-
         pytest.skip("fixture set has no sampler_step capture")
 
     eps_pred = load_reference(reference_dir, "sampler_step_eps_pred")

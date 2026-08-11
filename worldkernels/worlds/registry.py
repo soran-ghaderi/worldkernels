@@ -83,14 +83,7 @@ def _ensure_plugins_loaded() -> None:
     try:
         from importlib.metadata import entry_points
 
-        eps = entry_points()
-        # Python 3.12+ returns a SelectableGroups; 3.9-3.11 returns dict
-        if hasattr(eps, "select"):
-            world_eps = eps.select(group="worldkernels.worlds")
-        else:
-            world_eps = eps.get("worldkernels.worlds", [])  # type: ignore[arg-type]
-
-        for ep in world_eps:
+        for ep in entry_points().select(group="worldkernels.worlds"):
             try:
                 cls = ep.load()
                 # Don't overwrite built-ins with their own entry_points

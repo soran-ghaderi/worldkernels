@@ -33,11 +33,13 @@ from worldkernels.serving.websocket import register_websocket_routes
 if TYPE_CHECKING:
     from worldkernels.engine.async_engine import AsyncEngine
 
-router = APIRouter(prefix="/v1")
-
 
 def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRouter:
-    r"""Bind an `AsyncEngine` and optional auth to the router."""
+    r"""Build a `/v1` router bound to an `AsyncEngine` and optional auth.
+
+    The router is created per call so each app owns its own routes.
+    """
+    router = APIRouter(prefix="/v1")
     engine = async_engine.engine
     deps = [Depends(auth_dep)] if auth_dep is not None else []
 

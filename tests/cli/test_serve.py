@@ -139,6 +139,18 @@ class TestEnumerateRoutes:
         assert "GET" in routes["/health"]
         assert "GET" in routes["/metrics"]
 
+    def test_included_router_surface_is_enumerated(self):
+        r"""Guards against FastAPI keeping included routers nested: the whole
+        ``/v1`` surface must be listed, not just the app-level routes."""
+        routes = enumerate_routes(create_app(device="cpu"))
+        paths = {p for p, _ in routes}
+        assert {"/v1/worlds", "/v1/sessions", "/v1/sessions/{session_id}/step"} <= paths
+        assert ("/v1/sessions", ["POST"]) in routes
+
     def test_websocket_route_labeled(self):
         routes = enumerate_routes(create_app(device="cpu"))
-        assert any(methods == ["WEBSOCKET"] for _, methods in routes)
+        ws = [(p, m) for p, m in routes if m == ["WEBSOCKET"]]
+        assert ws == [("/v1/sessions/{session_id}/stream", ["WEBSOCKET"])]
+
+    def test_no_empty_paths(self):
+        assert all(p for p, _ in enumerate_routes(create_app(device="cpu")))

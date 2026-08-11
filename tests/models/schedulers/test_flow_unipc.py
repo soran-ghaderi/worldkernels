@@ -14,7 +14,11 @@ import numpy as np
 import pytest
 import torch
 
-from worldkernels.models.schedulers.flow_unipc import FlowUniPCMultistepScheduler
+pytest.importorskip("diffusers")
+
+from worldkernels.models.schedulers.flow_unipc import (  # noqa: E402
+    FlowUniPCMultistepScheduler,
+)
 
 GOLDEN_TIMESTEPS = [999, 972, 937, 892, 833, 749, 624, 416]
 GOLDEN_SIGMAS_FIRST5 = [0.999799848, 0.972006023, 0.937265456, 0.892601848, 0.833055377]

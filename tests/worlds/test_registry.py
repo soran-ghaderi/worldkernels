@@ -158,14 +158,9 @@ class TestPluginsDiscovery:
         registry._ensure_plugins_loaded()
         assert any("Failed to load world plugin" in r.message for r in caplog.records)
 
-    def test_entry_points_dict_fallback(self, monkeypatch):
+    def test_non_selectable_entry_points_is_handled(self, monkeypatch):
         self._reset_plugins()
-
-        class _OldStyleEPs(dict):
-            pass
-
-        eps = _OldStyleEPs()
-        monkeypatch.setattr("importlib.metadata.entry_points", lambda: eps)
+        monkeypatch.setattr("importlib.metadata.entry_points", dict)
         registry._ensure_plugins_loaded()
 
     def test_entry_points_failure_is_logged(self, monkeypatch):

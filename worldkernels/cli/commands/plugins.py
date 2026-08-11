@@ -12,10 +12,7 @@ def run_list() -> None:
     groups = ("worldkernels.worlds", "worldkernels.pipelines")
 
     for group in groups:
-        if hasattr(eps, "select"):
-            items = list(eps.select(group=group))
-        else:
-            items = list(eps.get(group, []))
+        items = list(eps.select(group=group))
         ui.rule(group)
         if not items:
             ui.info("(none)")
