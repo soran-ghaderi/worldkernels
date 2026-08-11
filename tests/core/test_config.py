@@ -44,16 +44,24 @@ class TestServerConfig:
         assert cfg.port == 8000
         assert cfg.max_sessions == 4
         assert cfg.api_key is None
-        assert cfg.cors_origins == ["*"]
+        assert cfg.allowed_origins == ["*"]
+        assert cfg.allowed_methods == ["*"]
+        assert cfg.allowed_headers == ["*"]
+        assert cfg.allow_credentials is False
+        assert cfg.ssl_keyfile is None
+        assert cfg.ssl_certfile is None
+        assert cfg.uvicorn_log_level == "info"
+        assert cfg.disable_access_log is False
+        assert cfg.root_path == ""
 
-    def test_cors_origins_independent_per_instance(self):
+    def test_allowed_origins_independent_per_instance(self):
         a, b = ServerConfig(), ServerConfig()
-        a.cors_origins.append("http://x")
-        assert b.cors_origins == ["*"]
+        a.allowed_origins.append("http://x")
+        assert b.allowed_origins == ["*"]
 
     def test_overrides(self):
-        cfg = ServerConfig(host="127.0.0.1", port=9000, api_key="k", cors_origins=["x"])
+        cfg = ServerConfig(host="127.0.0.1", port=9000, api_key="k", allowed_origins=["x"])
         assert cfg.host == "127.0.0.1"
         assert cfg.port == 9000
         assert cfg.api_key == "k"
-        assert cfg.cors_origins == ["x"]
+        assert cfg.allowed_origins == ["x"]

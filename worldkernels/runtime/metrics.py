@@ -29,6 +29,9 @@ __all__ = [
     "set_worker_processes",
     "observe_worker_ipc_latency",
     "inc_worker_respawns",
+    "get_active_sessions",
+    "get_vram_bytes",
+    "get_steps_total",
 ]
 
 REGISTRY = CollectorRegistry()
@@ -133,6 +136,18 @@ def observe_worker_ipc_latency(model_id: str, seconds: float) -> None:
 
 def inc_worker_respawns(model_id: str) -> None:
     _WORKER_RESPAWNS.labels(model_id=model_id).inc()
+
+
+def get_active_sessions() -> float:
+    return _ACTIVE_SESSIONS._value.get()
+
+
+def get_vram_bytes() -> float:
+    return _VRAM_BYTES._value.get()
+
+
+def get_steps_total() -> float:
+    return _STEPS_TOTAL._value.get()
 
 
 def render() -> bytes:

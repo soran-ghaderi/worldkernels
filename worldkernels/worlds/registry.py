@@ -59,11 +59,12 @@ def _register_builtins() -> None:
     register_world("generator_world", GeneratorWorld)
 
     try:
-        from worldkernels.worlds.dreamdojo import DreamDojoWorld
+        from worldkernels.worlds.dreamdojo import DreamDojoStudentWorld, DreamDojoWorld
 
         register_world("dreamdojo", DreamDojoWorld)
+        register_world("dreamdojo_student", DreamDojoStudentWorld)
     except ImportError:
-        log.debug("DreamDojo world not available (cosmos_predict2 not installed)")
+        log.debug("DreamDojo world not available")
 
 
 # ---- entry_points discovery (lazy, once) --------------------------------
@@ -82,14 +83,7 @@ def _ensure_plugins_loaded() -> None:
     try:
         from importlib.metadata import entry_points
 
-        eps = entry_points()
-        # Python 3.12+ returns a SelectableGroups; 3.9-3.11 returns dict
-        if hasattr(eps, "select"):
-            world_eps = eps.select(group="worldkernels.worlds")
-        else:
-            world_eps = eps.get("worldkernels.worlds", [])  # type: ignore[arg-type]
-
-        for ep in world_eps:
+        for ep in entry_points().select(group="worldkernels.worlds"):
             try:
                 cls = ep.load()
                 # Don't overwrite built-ins with their own entry_points

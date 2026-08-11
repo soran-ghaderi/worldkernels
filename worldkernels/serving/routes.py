@@ -13,7 +13,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from worldkernels.config import WorldConfig
@@ -33,11 +33,13 @@ from worldkernels.serving.websocket import register_websocket_routes
 if TYPE_CHECKING:
     from worldkernels.engine.async_engine import AsyncEngine
 
-router = APIRouter(prefix="/v1")
-
 
 def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRouter:
-    r"""Bind an `AsyncEngine` and optional auth to the router."""
+    r"""Build a `/v1` router bound to an `AsyncEngine` and optional auth.
+
+    The router is created per call so each app owns its own routes.
+    """
+    router = APIRouter(prefix="/v1")
     engine = async_engine.engine
     deps = [Depends(auth_dep)] if auth_dep is not None else []
 
@@ -146,6 +148,7 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
             guidance_scale=req.guidance_scale,
             frames_per_step=req.frames_per_step,
             initial_prompt=req.initial_prompt,
+            initial_image=req.initial_image,
         )
         try:
             sess = await async_engine.create_session(
@@ -187,6 +190,44 @@ def configure_routes(async_engine: "AsyncEngine", auth_dep: Any = None) -> APIRo
         except WorldKernelError as exc:
             raise HTTPException(status_code=500, detail=str(exc))
         return _observation_to_dict(obs, session_id)
+
+    @router.post("/sessions/{session_id}/clip", tags=["sessions"], dependencies=deps)
+    async def clip(session_id: str, req: ClipRequest) -> Response:
+        r"""Step ``steps`` times and return the frames as an encoded ``gif``/``mp4`` file.
+
+        With ``actions`` (a server-side ``.npy`` path) each step is driven by the next
+        ``[chunk_size, action_dim]`` chunk; otherwise ``action_type``/``payload`` is reused.
+        """
+        from worldkernels.core.action import Action, load_action_chunks
+
+        sess = _require_session(engine, session_id)
+        h, w = (sess.config.height, sess.config.width) if sess.config else (480, 848)
+        chunks = load_action_chunks(req.actions, req.steps) if req.actions else None
+        raw: list[bytes] = []
+        for i in range(req.steps):
+            if chunks is not None:
+                action = Action("continuous", {"joints": chunks[min(i, len(chunks) - 1)]})
+            else:
+                action = Action(action_type=req.action_type, payload=req.payload)
+            try:
+                obs = await async_engine.step(
+                    session_id, action, modalities=["frames"], decode=True
+                )
+            except SessionNotFoundError as exc:
+                raise HTTPException(status_code=404, detail=str(exc))
+            except (SessionTerminatedError, SessionPausedError) as exc:
+                raise HTTPException(status_code=410, detail=str(exc))
+            except WorldKernelError as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+            raw.extend(bytes(f) for f in (obs.frames or []) if isinstance(f, (bytes, bytearray)))
+        if not raw:
+            raise HTTPException(
+                status_code=409, detail="no frames produced (try decode=true world)"
+            )
+        data, media = _encode_clip(raw, w, h, req.fps, req.format)
+        if req.close:
+            await async_engine.close_session(session_id)
+        return Response(content=data, media_type=media)
 
     @router.post("/sessions/{session_id}/checkpoint", tags=["sessions"], dependencies=deps)
     async def checkpoint(session_id: str) -> dict[str, str]:
@@ -236,6 +277,7 @@ class CreateSessionRequest(BaseModel):
     guidance_scale: float = 1.0
     frames_per_step: int = 8
     initial_prompt: str | None = None
+    initial_image: str | None = None
     seed: int | None = None
     overrides: dict[str, Any] | None = None
 
@@ -247,11 +289,52 @@ class StepRequest(BaseModel):
     decode: bool = True
 
 
+class ClipRequest(BaseModel):
+    steps: int = 6
+    fps: int = 24
+    format: str = "gif"
+    actions: str | None = None
+    action_type: str = "null"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    close: bool = True
+
+
 class RestoreRequest(BaseModel):
     checkpoint_id: str
 
 
 # ---- helpers --------------------------------------------------------------
+
+
+def _encode_clip(raw: list[bytes], w: int, h: int, fps: int, fmt: str) -> tuple[bytes, str]:
+    from io import BytesIO
+
+    from PIL import Image
+
+    imgs = [Image.frombytes("RGB", (w, h), bytes(f)) for f in raw]
+    buf = BytesIO()
+    if fmt == "gif":
+        imgs[0].save(
+            buf,
+            format="GIF",
+            save_all=True,
+            append_images=imgs[1:],
+            duration=max(1, 1000 // fps),
+            loop=0,
+        )
+        return buf.getvalue(), "image/gif"
+    if fmt == "mp4":
+        try:
+            import imageio.v3 as iio
+            import numpy as np
+
+            iio.imwrite(buf, np.stack([np.asarray(im) for im in imgs]), extension=".mp4", fps=fps)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=501, detail=f"mp4 encode unavailable ({exc}); use format=gif"
+            )
+        return buf.getvalue(), "video/mp4"
+    raise HTTPException(status_code=400, detail=f"unknown format {fmt!r}; use gif or mp4")
 
 
 def _require_session(engine: Any, session_id: str) -> Any:

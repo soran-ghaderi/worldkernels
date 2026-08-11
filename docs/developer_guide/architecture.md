@@ -6,7 +6,7 @@ icon: material/folder-outline
 
 # WorldKernels Architecture
 
-WorldKernels is a GPU-first simulation engine for serving learned world models as stateful interactive sessions. Conceptually, it applies vLLM-style cache and scheduling ideas to world simulation instead of text generation.
+WorldKernels is a GPU-first simulation engine for serving learned world models as stateful interactive sessions. Conceptually, it brings paged caching and continuous-batching scheduling, the techniques that make large-scale text inference efficient, to world simulation.
 
 ## Design Principles
 

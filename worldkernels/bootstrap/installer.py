@@ -1,4 +1,4 @@
-r"""Installer dispatch: Shared vs Isolated tier (ADR-012).
+r"""Installer dispatch: shared vs isolated tier.
 
 The shared installer puts deps into the running interpreter's env (the same
 path the lazy bootstrap has always used). The isolated installer materializes

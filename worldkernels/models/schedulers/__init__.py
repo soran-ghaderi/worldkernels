@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import importlib as _importlib
 
-__all__ = ["FlowUniPCMultistepScheduler"]
+__all__ = [
+    "FlowUniPCMultistepScheduler",
+    "TRIGFLOW_TIMES_4STEP",
+    "trigflow_time",
+    "trigflow_scaling",
+    "trigflow_step",
+]
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "FlowUniPCMultistepScheduler": (
         "worldkernels.models.schedulers.flow_unipc",
         "FlowUniPCMultistepScheduler",
     ),
+    "TRIGFLOW_TIMES_4STEP": ("worldkernels.models.schedulers.trigflow", "TRIGFLOW_TIMES_4STEP"),
+    "trigflow_time": ("worldkernels.models.schedulers.trigflow", "trigflow_time"),
+    "trigflow_scaling": ("worldkernels.models.schedulers.trigflow", "trigflow_scaling"),
+    "trigflow_step": ("worldkernels.models.schedulers.trigflow", "trigflow_step"),
 }
 
 

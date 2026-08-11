@@ -22,7 +22,6 @@ log = logging.getLogger(__name__)
 
 
 _EXTRA_SENTINELS: dict[str, str] = {
-    "cosmos": "transformers",
     "diffusion": "diffusers",
 }
 
@@ -97,17 +96,34 @@ def install_packages(
         raise RuntimeError(f"install failed for {packages!r} via {runner} (exit {proc.returncode})")
 
 
+_UV_BIN: str | None = None
+
+
+def _resolve_uv() -> str | None:
+    r"""Locate the bundled uv binary (PATH-independent). None means use pip."""
+    global _UV_BIN
+    if os.environ.get("WORLDKERNELS_FORCE_PIP"):
+        return None
+    if _UV_BIN is not None:
+        return _UV_BIN
+    try:
+        from uv import find_uv_bin
+
+        _UV_BIN = find_uv_bin()
+    except (ImportError, FileNotFoundError):
+        _UV_BIN = shutil.which("uv")
+    return _UV_BIN
+
+
 def _select_installer() -> str:
-    if shutil.which("uv") is not None:
-        return "uv"
-    return "pip"
+    return _resolve_uv() or "pip"
 
 
 def _build_install_cmd(
     runner: str, packages: list[str], python_exe: str, constraints: str | None
 ) -> list[str]:
-    if runner == "uv":
-        cmd = ["uv", "pip", "install", "--python", python_exe]
+    if runner != "pip":
+        cmd = [runner, "pip", "install", "--python", python_exe]
         if constraints:
             cmd += ["--constraint", constraints]
         cmd += packages

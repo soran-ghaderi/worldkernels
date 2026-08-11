@@ -66,6 +66,33 @@ class TestWorldRoutes:
         sess = client.app.state.engine.get_session(body["session_id"])
         assert sess.overrides == {"teacache": False}
 
+    def test_clip_returns_gif(self, client):
+        sid = client.post(
+            "/v1/sessions",
+            json={"world": "dummy", "height": 32, "width": 32, "frames_per_step": 2},
+        ).json()["session_id"]
+        r = client.post(f"/v1/sessions/{sid}/clip", json={"steps": 3, "fps": 12})
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/gif"
+        assert r.content[:6] == b"GIF89a"
+        assert client.app.state.engine.get_session(sid) is None  # closed by default
+
+    def test_clip_keep_session(self, client):
+        sid = client.post(
+            "/v1/sessions",
+            json={"world": "dummy", "height": 32, "width": 32, "frames_per_step": 2},
+        ).json()["session_id"]
+        client.post(f"/v1/sessions/{sid}/clip", json={"steps": 2, "close": False})
+        assert client.app.state.engine.get_session(sid) is not None
+
+    def test_clip_unknown_format_400(self, client):
+        sid = client.post(
+            "/v1/sessions",
+            json={"world": "dummy", "height": 16, "width": 16, "frames_per_step": 1},
+        ).json()["session_id"]
+        r = client.post(f"/v1/sessions/{sid}/clip", json={"steps": 1, "format": "xyz"})
+        assert r.status_code == 400
+
     def test_unload_unknown_404(self, client):
         r = client.delete("/v1/worlds/missing_xyz")
         assert r.status_code == 404

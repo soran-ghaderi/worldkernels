@@ -1,4 +1,4 @@
-r"""Worker subprocess entrypoint for isolated models (ADR-012 Tier 2).
+r"""Worker subprocess entrypoint for isolated models.
 
 Invoked as ``python -m worldkernels.runtime.worker --model {id} --socket {path}
 --device {cuda:N}``. Runs inside the per-model isolated venv (`runtime/envs.py`).

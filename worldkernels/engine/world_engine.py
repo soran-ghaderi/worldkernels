@@ -134,8 +134,8 @@ class WorldEngine:
     ) -> None:
         r"""Load a world model from a hub alias, HF repo id, or local checkpoint path.
 
-        Drives the resolver (ADR-012): the resolver decides whether the model can
-        share the current env or needs an isolated subprocess. Shared models go
+        Drives the resolver, which decides whether the model can share the
+        current env or needs an isolated subprocess. Shared models go
         through `worldkernels.bootstrap.prepare` and instantiate locally; isolated
         models materialize a per-model uv venv and are accessed via `RemoteWorld`.
 

@@ -1,9 +1,8 @@
 r"""Native video-diffusion model families and their pipelines.
 
-Mirrors vLLM-Omni's ``diffusion/models/`` layout: one subpackage per model
-family (``wan/``, ...), a shared ``schedulers/`` package, and a ``registry``
-mapping family names to pipeline classes. Adding a model is a new subpackage
-plus one ``registry`` row.
+One subpackage per model family (``wan/``, ...), a shared ``schedulers/``
+package, and a ``registry`` mapping family names to pipeline classes. Adding a
+model is a new subpackage plus one ``registry`` row.
 
 The ``registry`` module is import-light (no torch); pipeline modules are not
 and are resolved lazily.

@@ -13,7 +13,7 @@ __all__ = ["get_pipeline_class", "list_pipelines", "register_pipeline"]
 
 _PIPELINES: dict[str, tuple[str, str]] = {
     "wan_i2v": ("worldkernels.models.wan.pipeline_wan_i2v", "WanI2VPipeline"),
-    "cosmos_predict2": ("worldkernels.models.cosmos_predict2.pipeline", "CosmosPredict2Pipeline"),
+    "dreamdojo": ("worldkernels.models.dreamdojo.pipeline", "DreamDojoPipeline"),
 }
 
 

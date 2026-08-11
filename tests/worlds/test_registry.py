@@ -106,7 +106,7 @@ class TestRegisterBuiltinsImportErrors:
         caplog.set_level(logging.DEBUG, logger="worldkernels.worlds.registry")
         with monkeypatch.context() as m:
             m.setattr(builtins, "__import__", fake_import)
-            registry._REGISTRY.pop("cosmos_predict2", None)
+            registry._REGISTRY.pop("dreamdojo_student", None)
             _register_builtins()
 
 
@@ -158,14 +158,9 @@ class TestPluginsDiscovery:
         registry._ensure_plugins_loaded()
         assert any("Failed to load world plugin" in r.message for r in caplog.records)
 
-    def test_entry_points_dict_fallback(self, monkeypatch):
+    def test_non_selectable_entry_points_is_handled(self, monkeypatch):
         self._reset_plugins()
-
-        class _OldStyleEPs(dict):
-            pass
-
-        eps = _OldStyleEPs()
-        monkeypatch.setattr("importlib.metadata.entry_points", lambda: eps)
+        monkeypatch.setattr("importlib.metadata.entry_points", dict)
         registry._ensure_plugins_loaded()
 
     def test_entry_points_failure_is_logged(self, monkeypatch):

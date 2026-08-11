@@ -26,7 +26,7 @@ jobs:
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
       - uses: actions/setup-python@v5
         with:
-          python-version: 3.x
+          python-version: '3.12'
       - name: Install image optimizers (pngquant, jpegoptim)
         run: sudo apt-get update && sudo apt-get install -y pngquant jpegoptim
       - name: Compute cache key suffix

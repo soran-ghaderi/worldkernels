@@ -30,12 +30,14 @@ def create_app(
         title="WorldKernels",
         description="GPU-first world model simulation engine",
         version="0.1.0",
+        root_path=cfg.root_path,
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cfg.cors_origins,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=cfg.allowed_origins,
+        allow_methods=cfg.allowed_methods,
+        allow_headers=cfg.allowed_headers,
+        allow_credentials=cfg.allow_credentials,
     )
 
     engine = WorldEngine(runtime_config, device=device, max_sessions=cfg.max_sessions)

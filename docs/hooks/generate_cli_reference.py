@@ -1,6 +1,6 @@
-r"""Auto-generate CLI reference docs from tyro-based dataclass commands (in-memory)."""
+r"""Auto-generate CLI reference docs by introspecting the argparse parser (in-memory)."""
 
-import ast
+import argparse
 import logging
 import re
 from dataclasses import dataclass, field
@@ -16,6 +16,7 @@ CLI_MAIN = ROOT_DIR / "worldkernels" / "cli" / "main.py"
 
 _MDASH = "\u2014"
 _TOC_SYMBOLS: dict[str, str] = {}
+_GLOBAL_DESTS = {"help", "quiet", "verbose", "debug", "output", "version", "dispatch"}
 
 _OPT_DEFAULTS: dict[str, Any] = {
     "heading_level": 1,
@@ -73,11 +74,6 @@ def _slugify(text: str) -> str:
     return slug.strip("-")
 
 
-# ---------------------------------------------------------------------------
-# Data model
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class CLIField:
     name: str
@@ -90,240 +86,117 @@ class CLIField:
 @dataclass
 class CLICommand:
     name: str
-    class_name: str = ""
     description: str = ""
     fields: list[CLIField] = field(default_factory=list)
     source_file: Path | None = None
 
 
-# ---------------------------------------------------------------------------
-# AST extraction from tyro dataclasses
-# ---------------------------------------------------------------------------
+def _action_type_str(action: argparse.Action) -> str:
+    if isinstance(action, argparse.BooleanOptionalAction | argparse._StoreTrueAction):
+        return "bool"
+    if isinstance(action, argparse._CountAction):
+        return "int"
+    if callable(action.type):
+        return getattr(action.type, "__name__", "str")
+    return "str"
 
 
-def _ast_to_str(node: ast.AST) -> str:
-    """Best-effort conversion of an AST node to a readable string."""
-    if isinstance(node, ast.Constant):
-        return repr(node.value)
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return f"{_ast_to_str(node.value)}.{node.attr}"
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-        return f"{_ast_to_str(node.left)} | {_ast_to_str(node.right)}"
-    if isinstance(node, ast.Subscript):
-        return f"{_ast_to_str(node.value)}[{_ast_to_str(node.slice)}]"
-    if isinstance(node, ast.Tuple):
-        return ", ".join(_ast_to_str(e) for e in node.elts)
-    return ast.dump(node)
+def _field_from_action(action: argparse.Action) -> CLIField:
+    if action.option_strings:
+        longs = [o for o in action.option_strings if o.startswith("--")]
+        shorts = [o for o in action.option_strings if not o.startswith("--")]
+        name = (longs[0] if longs else action.option_strings[0]).lstrip("-")
+        aliases = shorts + longs[1:]
+        if isinstance(action, argparse.BooleanOptionalAction):
+            aliases = [o for o in aliases if o not in (f"--{name}", f"--no-{name}")]
+    else:
+        name = action.dest
+        aliases = []
+
+    description = action.help or ""
+    if action.choices:
+        choices = ", ".join(str(c) for c in action.choices)
+        description = f"{description} Choices: {choices}.".strip()
+
+    default = None
+    if action.default not in (None, argparse.SUPPRESS):
+        default = repr(action.default)
+
+    return CLIField(
+        name=name,
+        type_str=_action_type_str(action),
+        default=default,
+        description=description,
+        aliases=aliases,
+    )
 
 
-def _extract_subcommand_name(annotation_node: ast.AST) -> str | None:
-    """Extract the name from ``Annotated[SomeClass, tyro.conf.subcommand("name")]``."""
-    if not isinstance(annotation_node, ast.Subscript):
-        return None
-    if not isinstance(annotation_node.value, ast.Name):
-        return None
-    if annotation_node.value.id != "Annotated":
-        return None
-    if not isinstance(annotation_node.slice, ast.Tuple):
-        return None
-    for elt in annotation_node.slice.elts[1:]:
-        if isinstance(elt, ast.Call):
-            func_str = _ast_to_str(elt.func)
-            if "subcommand" in func_str and elt.args:
-                if isinstance(elt.args[0], ast.Constant):
-                    return str(elt.args[0].value)
+def _command_from_parser(name: str, parser: argparse.ArgumentParser) -> CLICommand:
+    fields = [
+        _field_from_action(a)
+        for a in parser._actions
+        if a.dest not in _GLOBAL_DESTS and not isinstance(a, argparse._SubParsersAction)
+    ]
+    return CLICommand(
+        name=name,
+        description=(parser.description or "").strip(),
+        fields=fields,
+        source_file=CLI_MAIN,
+    )
+
+
+def _subparsers_action(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
     return None
 
 
-def _extract_alias(annotation_node: ast.AST) -> list[str]:
-    """Extract aliases from ``Annotated[..., tyro.conf.arg(aliases=("-k",))]``."""
-    if not isinstance(annotation_node, ast.Subscript):
-        return []
-    if not isinstance(annotation_node.slice, ast.Tuple):
-        return []
-    aliases: list[str] = []
-    for elt in annotation_node.slice.elts[1:]:
-        if isinstance(elt, ast.Call):
-            for kw in elt.keywords:
-                if kw.arg == "aliases" and isinstance(kw.value, ast.Tuple):
-                    for a in kw.value.elts:
-                        if isinstance(a, ast.Constant):
-                            aliases.append(str(a.value))
-    return aliases
+def discover_commands() -> tuple[list[CLICommand], list[CLIField]]:
+    r"""Build the real parser and walk its subcommand tree.
 
+    Returns:
+        ``(commands, global_fields)`` where nested subcommands are named
+        ``parent:child`` (e.g. ``bench:latency``).
+    """
+    from worldkernels.cli.main import build_parser
 
-def _get_field_type(annotation: ast.AST | None) -> str:
-    if annotation is None:
-        return "str"
-    if isinstance(annotation, ast.Subscript) and isinstance(annotation.value, ast.Name):
-        if annotation.value.id == "Annotated" and isinstance(annotation.slice, ast.Tuple):
-            return _ast_to_str(annotation.slice.elts[0])
-    return _ast_to_str(annotation)
-
-
-class TyroASTExtractor(ast.NodeVisitor):
-    r"""Extract command dataclasses and the Command Union from cli/main.py."""
-
-    def __init__(self) -> None:
-        self.dataclasses: dict[str, CLICommand] = {}
-        self.subcommand_map: dict[str, str] = {}
-        self._source: str = ""
-
-    def extract(self, source_path: Path) -> None:
-        self._source = source_path.read_text(encoding="utf-8")
-        tree = ast.parse(self._source, filename=str(source_path))
-        self.visit(tree)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        is_dataclass = any(
-            (isinstance(d, ast.Name) and d.id == "dataclass")
-            or (
-                isinstance(d, ast.Call)
-                and isinstance(d.func, ast.Name)
-                and d.func.id == "dataclass"
-            )
-            for d in node.decorator_list
-        )
-        if not is_dataclass:
-            self.generic_visit(node)
-            return
-
-        docstring = ast.get_docstring(node) or ""
-        fields: list[CLIField] = []
-
-        for item in node.body:
-            if not isinstance(item, ast.AnnAssign):
-                continue
-            if not isinstance(item.target, ast.Name):
-                continue
-
-            fname = item.target.id
-            if fname.startswith("_"):
-                continue
-
-            ftype = _get_field_type(item.annotation)
-            aliases = _extract_alias(item.annotation) if item.annotation else []
-
-            default_val = None
-            if item.value is not None:
-                if isinstance(item.value, ast.Constant):
-                    default_val = repr(item.value.value)
-                elif isinstance(item.value, ast.Call):
-                    default_val = None
-                else:
-                    default_val = _ast_to_str(item.value)
-
-            fields.append(
-                CLIField(
-                    name=fname,
-                    type_str=ftype,
-                    default=default_val,
-                    aliases=aliases,
-                )
-            )
-
-        self.dataclasses[node.name] = CLICommand(
-            name=node.name,
-            class_name=node.name,
-            description=docstring.strip(),
-            fields=fields,
-            source_file=None,
-        )
-
-        self.generic_visit(node)
-
-    def visit_Assign(self, node: ast.Assign) -> None:
-        """Find Command = ... Union with subcommand annotations."""
-        for target in node.targets:
-            if isinstance(target, ast.Name) and target.id == "Command":
-                self._extract_union_subcommands(node.value)
-        self.generic_visit(node)
-
-    def _extract_union_subcommands(self, node: ast.AST) -> None:
-        """Walk nested Subscript nodes to find Annotated[Cls, subcommand("name")]."""
-        if isinstance(node, ast.Subscript):
-            if isinstance(node.slice, ast.Tuple):
-                for elt in node.slice.elts:
-                    name = _extract_subcommand_name(elt)
-                    if name is not None and isinstance(elt, ast.Subscript):
-                        if isinstance(elt.slice, ast.Tuple) and elt.slice.elts:
-                            cls_node = elt.slice.elts[0]
-                            if isinstance(cls_node, ast.Name):
-                                self.subcommand_map[cls_node.id] = name
-                    else:
-                        self._extract_union_subcommands(elt)
-            else:
-                self._extract_union_subcommands(node.slice)
-
-
-def _visit_assign_name(node: ast.Assign) -> str | None:
-    for target in node.targets:
-        if isinstance(target, ast.Name):
-            return target.id
-    return None
-
-
-def discover_commands(source_path: Path) -> list[CLICommand]:
-    """Extract CLI commands from tyro-based main.py."""
-    extractor = TyroASTExtractor()
-    extractor.extract(source_path)
-
-    subcommand_map = extractor.subcommand_map
-
-    source = source_path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            name = _visit_assign_name(node)
-            if name == "Command":
-                _walk_for_subcommands(node.value, subcommand_map)
-
+    parser = build_parser()
+    sub = _subparsers_action(parser)
     commands: list[CLICommand] = []
-    for cls_name, cmd in extractor.dataclasses.items():
-        if cls_name in subcommand_map:
-            cmd.name = subcommand_map[cls_name]
-            cmd.source_file = source_path
-            commands.append(cmd)
+    if sub is not None:
+        for name, sp in sub.choices.items():
+            nested = _subparsers_action(sp)
+            if nested is not None:
+                for child_name, child in nested.choices.items():
+                    commands.append(_command_from_parser(f"{name}:{child_name}", child))
+            else:
+                commands.append(_command_from_parser(name, sp))
 
+    global_fields = [
+        _field_from_action(a)
+        for a in parser._actions
+        if a.option_strings and a.dest in _GLOBAL_DESTS and a.dest not in ("dispatch", "help")
+    ]
     commands.sort(key=lambda c: c.name)
-    return commands
-
-
-def _walk_for_subcommands(node: ast.AST, result: dict[str, str]) -> None:
-    """Recursively find Annotated[Cls, tyro.conf.subcommand("name")] in Union."""
-    if isinstance(node, ast.Subscript):
-        name = _extract_subcommand_name(node)
-        if name is not None and isinstance(node.slice, ast.Tuple) and node.slice.elts:
-            cls_node = node.slice.elts[0]
-            if isinstance(cls_node, ast.Name):
-                result[cls_node.id] = name
-        if isinstance(node.slice, ast.Tuple):
-            for elt in node.slice.elts:
-                _walk_for_subcommands(elt, result)
-        else:
-            _walk_for_subcommands(node.slice, result)
-
-
-# ---------------------------------------------------------------------------
-# Generator
-# ---------------------------------------------------------------------------
+    return commands, global_fields
 
 
 class CLIReferenceGenerator:
-    r"""Discover and document the worldkernels CLI from tyro dataclasses."""
+    r"""Discover and document the worldkernels CLI from the argparse tree."""
 
     def __init__(self, opts: CLIOptions) -> None:
         self.opts = opts
         self.commands: list[CLICommand] = []
+        self.global_fields: list[CLIField] = []
         self.grouped: dict[str, list[CLICommand]] = {}
 
     def discover(self) -> None:
-        if not CLI_MAIN.exists():
-            logger.warning("CLI main module not found: %s", CLI_MAIN)
+        try:
+            self.commands, self.global_fields = discover_commands()
+        except Exception as exc:
+            logger.warning("CLI reference: could not build parser: %s", exc)
             return
-        self.commands = discover_commands(CLI_MAIN)
         for cmd in self.commands:
             prefix = cmd.name.split(":")[0] if ":" in cmd.name else cmd.name
             self.grouped.setdefault(prefix, []).append(cmd)
@@ -393,10 +266,17 @@ class CLIReferenceGenerator:
                     "",
                     "| Flag | Description |",
                     "|------|-------------|",
-                    "| `--help`, `-h` | Show help message and exit |",
-                    "",
                 ]
             )
+            for fld in self.global_fields:
+                flags = ", ".join([f"`--{fld.name}`", *(f"`{a}`" for a in fld.aliases)])
+                lines.append(f"| {flags} | {fld.description or _MDASH} |")
+            lines.append("| `--help`, `-h` | Show help message and exit |")
+            lines.append(
+                "| `--help=<group\\|keyword\\|all>` | Search help: one config group, "
+                "a keyword across options, or everything |"
+            )
+            lines.append("")
 
         return "\n".join(lines)
 
@@ -442,14 +322,7 @@ class CLIReferenceGenerator:
                 lines.extend([cmd.description, ""])
 
             if o.show_usage:
-                usage = f"worldkernels {cmd.name.replace(':', ' ')}"
-                opt_parts = []
-                for f in cmd.fields:
-                    flag = f"--{f.name.replace('_', '-')}"
-                    opt_parts.append(f"[{flag} {f.type_str.upper()}]")
-                if opt_parts:
-                    usage += " " + " ".join(opt_parts)
-                lines.extend(["```bash", usage, "```", ""])
+                lines.extend(["```bash", self._usage_line(cmd), "```", ""])
 
             if o.show_options_table and cmd.fields:
                 self._append_options_table(lines, cmd, h, level=2)
@@ -460,6 +333,16 @@ class CLIReferenceGenerator:
             lines.extend([f"{h(1)} Source", "", f"Defined in [`{rel}`]({gh}).", ""])
 
         return "\n".join(lines)
+
+    def _usage_line(self, cmd: CLICommand) -> str:
+        usage = f"worldkernels {cmd.name.replace(':', ' ')}"
+        opt_parts = []
+        for f in cmd.fields:
+            flag = f"--{f.name.replace('_', '-')}"
+            opt_parts.append(f"[{flag} {f.type_str.upper()}]")
+        if opt_parts:
+            usage += " " + " ".join(opt_parts)
+        return usage
 
     def _generate_single_command(self, cmd: CLICommand) -> str:
         o = self.opts
@@ -476,14 +359,7 @@ class CLIReferenceGenerator:
             lines.extend([cmd.description, ""])
 
         if o.show_usage:
-            usage = f"worldkernels {cmd.name}"
-            opt_parts = []
-            for f in cmd.fields:
-                flag = f"--{f.name.replace('_', '-')}"
-                opt_parts.append(f"[{flag} {f.type_str.upper()}]")
-            if opt_parts:
-                usage += " " + " ".join(opt_parts)
-            lines.extend([f"{h(1)} Usage", "", "```bash", usage, "```", ""])
+            lines.extend([f"{h(1)} Usage", "", "```bash", self._usage_line(cmd), "```", ""])
 
         if o.show_options_table and cmd.fields:
             self._append_options_table(lines, cmd, h, level=1)
@@ -541,11 +417,6 @@ class CLIReferenceGenerator:
         for name in self._all_top_level_names():
             items.append({name.capitalize(): f"cli/{name}.md"})
         return items
-
-
-# ---------------------------------------------------------------------------
-# MkDocs hooks
-# ---------------------------------------------------------------------------
 
 
 def on_post_page(output: str, page, config) -> str | None:

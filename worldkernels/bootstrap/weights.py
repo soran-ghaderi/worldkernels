@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,19 +32,32 @@ def provision_weights(
             progress.event("weights", "done", f"local: {p}")
         return str(p)
 
-    if card.hf_repo is None:
+    if card.hf_repo is None and card.weights_provider is None:
         if progress is not None:
             progress.event("weights", "skipped", "no hf repo declared")
         return None
 
+    source = card.hf_repo or card.weights_provider
     if not allow_fetch or os.environ.get("WORLDKERNELS_NO_AUTO_INSTALL"):
         raise FetchDisabledError(
-            f"missing weights for {card.hf_repo}",
-            f"run `worldkernels pull {card.hf_repo}` or pass --ckpt-path",
+            f"missing weights for {source}",
+            f"run `worldkernels pull {card.hf_repo or ''}`".strip() + " or pass --ckpt-path",
         )
 
     if progress is not None:
-        progress.event("weights", "running", f"{card.hf_repo} · {variant or ''}".strip(" ·"))
+        progress.event("weights", "running", f"{source} · {variant or ''}".strip(" ·"))
+
+    from worldkernels.bootstrap.hf import enable_fast_hf_transfer
+
+    enable_fast_hf_transfer()
+
+    if card.weights_provider is not None:
+        local_path = _load_weights_provider(card.weights_provider)(variant)
+        if progress is not None:
+            progress.event("weights", "done", str(source))
+        return local_path
+
+    assert card.hf_repo is not None
 
     try:
         from huggingface_hub import snapshot_download
@@ -69,3 +83,10 @@ def provision_weights(
     if progress is not None:
         progress.event("weights", "done", f"{card.hf_repo}")
     return local_dir
+
+
+def _load_weights_provider(spec: str) -> Callable[[str | None], str]:
+    import importlib
+
+    module_path, _, func_name = spec.partition(":")
+    return getattr(importlib.import_module(module_path), func_name)
