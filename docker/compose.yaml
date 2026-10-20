@@ -1,0 +1,25 @@
+
+services:
+  cpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cpu
+    image: worldkernels-cpu
+    volumes:
+      - ..:/app
+    working_dir: /app
+    stdin_open: true
+    tty: true
+
+  gpu:
+    profiles: ["gpu"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gpu
+    image: worldkernels-gpu
+    volumes:
+      - ..:/app
+    working_dir: /app
+    gpus: all
+    stdin_open: true
+    tty: true
